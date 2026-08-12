@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\LeadProcessing\Contracts\LeadTransmitter;
+use App\Services\Leads\SimulatedLeadTransmitter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +13,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(LeadTransmitter::class, SimulatedLeadTransmitter::class);
     }
 
     /**

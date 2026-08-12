@@ -1,6 +1,21 @@
 <?php
 
 return [
+    'normalization' => [
+        'phone_country_calling_codes' => [
+            'BE' => '32',
+            'CA' => '1',
+            'CH' => '41',
+            'DE' => '49',
+            'ES' => '34',
+            'FR' => '33',
+            'GB' => '44',
+            'IT' => '39',
+            'NL' => '31',
+            'US' => '1',
+        ],
+    ],
+
     'score' => [
         'minimum' => 0,
         'maximum' => 100,
@@ -46,5 +61,16 @@ return [
         'business_application' => 'Yassine',
         'dashboard' => 'Yassine',
         'other' => 'Emma',
+    ],
+
+    'processing' => [
+        'max_attempts' => 3,
+        'backoff' => [1, 5],
+        'overlap_release_after' => 1,
+        'lock_expires_after' => 300,
+    ],
+
+    'transmission' => [
+        'reference_prefix' => 'simulated',
     ],
 ];
