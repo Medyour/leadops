@@ -152,8 +152,9 @@ n'utilise pas CSRF et n'appelle aucun service externe.
 ### 3.3 Parcours nominal
 
 1. Le contrôleur valide l'enveloppe reçue.
-2. `LeadIngestionService` génère, si nécessaire, la référence du formulaire et
-   crée le lead en `RECEIVED`.
+2. Le formulaire fournit la référence générée par le serveur lors de son
+   affichage ; `LeadIngestionService` exige cette référence et crée le lead en
+   `RECEIVED`.
 3. La contrainte unique garantit l'idempotence sous concurrence.
 4. `ProcessLead` est distribué après validation de la transaction.
 5. Le job passe le lead à `VALIDATING`, exécute les règles et journalise chaque
@@ -391,11 +392,13 @@ produire une erreur technique contrôlée afin de vérifier retries et `FAILED`.
 
 ### 6.7 Retries
 
-`ProcessLead` autorise trois exécutions par cycle avec deux délais courts et
-déterminés. Une erreur technique en `VALIDATING` relance la qualification ; une
-erreur après `QUALIFIED` reprend au routage et à la transmission sans modifier
-le score. Les erreurs métier ne sont pas retentées. Le hook d'échec final
-enregistre `processing.failed` et place le lead en `FAILED`.
+`ProcessLead` définit explicitement `$tries = 3` et autorise donc trois
+exécutions par cycle avec deux délais courts et déterminés. Cette limite portée
+par le job prévaut sur l'option `--tries=1` du worker de développement existant.
+Une erreur technique en `VALIDATING` relance la qualification ; une erreur
+après `QUALIFIED` reprend au routage et à la transmission sans modifier le
+score. Les erreurs métier ne sont pas retentées. Le hook d'échec final enregistre
+`processing.failed` et place le lead en `FAILED`.
 
 Le retry manuel distribue une nouvelle exécution seulement depuis `FAILED`. Il
 est journalisé séparément et remet `processing_attempts` à zéro. La limite
@@ -432,6 +435,10 @@ La validation HTTP couvre types, tailles maximales, champs requis et format de
 l'enveloppe. La validation métier partagée reste dans
 `LeadBusinessValidator`, afin que formulaire, CSV, webhook et retraitement
 suivent exactement les mêmes règles.
+
+`StoreLeadRequest` exige que la référence cachée du formulaire soit un UUID. Le
+contrôleur `create` la génère ; il n'en régénère jamais une lors du `POST`, afin
+qu'une répétition de la même soumission reste idempotente.
 
 Depuis `NEEDS_REVIEW`, les champs métier reçus peuvent être corrigés, mais
 `source` et `external_reference` restent immuables afin de préserver la clé
@@ -599,7 +606,8 @@ Chaque étape doit rester petite, testable et former un commit ciblé.
 3. **Données fictives** — factories et premiers scénarios stables.
 4. **Journal et transitions** — recorder, service de transition et tests
    transactionnels.
-5. **Ingestion commune** — service idempotent et référence générée du formulaire.
+5. **Ingestion commune** — service idempotent et référence générée à l'affichage
+   du formulaire.
 6. **Normalisation et validation** — règles partagées et tests de cas limites.
 7. **Déduplication** — index, détecteur, ambiguïtés et concurrence.
 8. **Score et classification** — détail explicable, bornage et seuils.
@@ -623,7 +631,7 @@ Chaque étape doit rester petite, testable et former un commit ciblé.
 - référence générée côté serveur pour le formulaire ;
 - `ROUTED` signifie que la transmission simulée a réussi ;
 - aucune transition ou règle `REJECTED`, statut retiré car non défini ;
-- trois tentatives techniques automatiques au total ;
+- trois tentatives techniques automatiques par cycle de traitement ;
 - règles de score centralisées, versionnées et explicables ;
 - assignés représentés par des libellés fictifs, sans table utilisateur métier ;
 - Blade pour toutes les pages, Vue 3 pour deux îlots seulement ;

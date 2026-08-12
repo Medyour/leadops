@@ -91,9 +91,11 @@ Exceptions : `INVALID`, `DUPLICATE`, `NEEDS_REVIEW`, `FAILED`.
 - consent
 - received_at
 
-`external_reference` est obligatoire pour les imports CSV et les webhooks. Pour
-le formulaire, le serveur génère cette référence avant l'enregistrement. Une
-référence est donc toujours présente dans le modèle persistant.
+`external_reference` est obligatoire pour les imports CSV et les webhooks. Lors
+de l'affichage du formulaire, le serveur génère cette référence et l'inclut dans
+un champ caché. Deux envois du même formulaire portent ainsi la même référence.
+Une nouvelle ouverture du formulaire génère une nouvelle référence. Une
+référence est donc toujours présente avant l'enregistrement.
 
 ### Données gérées ou calculées par le système
 
@@ -290,7 +292,7 @@ Tous les noms, entreprises, emails et téléphones sont fictifs.
 - classification correcte
 - routage correct
 - transmission simulée journalisée avant `ROUTED`
-- retries limités à trois tentatives totales
+- retries limités à trois tentatives par cycle de traitement
 - timeline complète
 - aucun service externe requis
 
