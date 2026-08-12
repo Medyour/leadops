@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ExceptionController;
 use App\Http\Controllers\LeadController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+
+Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+Route::get('/exceptions', [ExceptionController::class, 'index'])->name('exceptions.index');
 
 Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
 Route::post('/leads', [LeadController::class, 'store'])
