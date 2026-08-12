@@ -4,6 +4,9 @@ namespace App\Providers;
 
 use App\Domain\LeadProcessing\Contracts\LeadTransmitter;
 use App\Services\Leads\SimulatedLeadTransmitter;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -21,6 +24,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        RateLimiter::for('lead-form', function (Request $request): Limit {
+            $clientKey = hash_hmac(
+                'sha256',
+                $request->ip(),
+                (string) config('app.key'),
+            );
+
+            return Limit::perMinute(5)->by('lead-form:'.$clientKey);
+        });
     }
 }
