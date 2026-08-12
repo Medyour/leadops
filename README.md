@@ -56,3 +56,41 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Webhook JSON local
+
+Le webhook `POST /api/local/webhooks/leads` est enregistré uniquement avec
+`APP_ENV=local` ou `APP_ENV=testing`. Il attend `Content-Type: application/json`
+et une enveloppe contenant exactement une clé `lead` :
+
+```json
+{
+  "lead": {
+    "external_reference": "webhook-2026-0001",
+    "first_name": "Prénom Fictif",
+    "last_name": "Nom Fictif",
+    "company": "Atelier Imaginaire",
+    "email": "lead@example.test",
+    "phone": "+12025550123",
+    "country": "FR",
+    "service_interest": "automation",
+    "company_size": 12,
+    "message": "Message entièrement fictif.",
+    "consent": true,
+    "received_at": "2026-08-12T10:15:30Z"
+  }
+}
+```
+
+`external_reference`, les noms, le service, le consentement booléen à `true`
+et au moins un contact valide sont obligatoires. `company`, `email`, `phone`,
+`country`, `company_size`, `message` et `received_at` sont facultatifs. Une date
+fournie doit respecter strictement le format UTC `YYYY-MM-DDTHH:MM:SSZ`. Un
+champ `source` chaîne est toléré dans `lead` pour les émetteurs génériques mais
+est toujours ignoré : le serveur persiste `webhook`.
+
+Le débit est limité par client à 30 requêtes par minute par défaut. La valeur se
+configure avec `LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT`; la clé de débit est un HMAC
+de l'adresse réseau et ne conserve jamais l'adresse brute. La route n'utilise
+ni session, ni CSRF, ni authentification fictive. Les réponses ne contiennent
+que `result`, puis l'identifiant et le statut du lead en cas de succès.

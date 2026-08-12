@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'local_webhook' => [
+        'rate_limit_per_minute' => (int) env('LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT', 30),
+    ],
+
     'normalization' => [
         'phone_country_calling_codes' => [
             'BE' => '32',
