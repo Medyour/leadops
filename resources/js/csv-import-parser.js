@@ -1,4 +1,4 @@
-export const CSV_HEADER = Object.freeze([
+export const DEFAULT_CSV_HEADER = Object.freeze([
     'external_reference',
     'first_name',
     'last_name',
@@ -29,8 +29,13 @@ export function decodeUtf8(buffer) {
     }
 }
 
+export function canReadCsvFile(sizeBytes, maxBytes = CSV_LIMITS.maxBytes) {
+    return Number.isFinite(sizeBytes) && sizeBytes >= 0 && sizeBytes <= maxBytes;
+}
+
 export function analyzeCsv(text, options = {}) {
     const limits = { ...CSV_LIMITS, ...options };
+    const headerContract = options.header ?? DEFAULT_CSV_HEADER;
     const warnings = [];
 
     if (limits.sizeBytes > limits.maxBytes) {
@@ -70,10 +75,10 @@ export function analyzeCsv(text, options = {}) {
     }
 
     const header = records[0];
-    const headerValid = arraysEqual(header, CSV_HEADER);
+    const headerValid = arraysEqual(header, headerContract);
 
     if (!headerValid) {
-        warnings.push(headerWarning(header));
+        warnings.push(...headerWarnings(header, headerContract));
     }
 
     const rows = records.slice(1);
@@ -83,7 +88,7 @@ export function analyzeCsv(text, options = {}) {
     }
 
     const invalidColumnRows = rows
-        .map((row, index) => (row.length === CSV_HEADER.length ? null : index + 2))
+        .map((row, index) => (row.length === headerContract.length ? null : index + 2))
         .filter((line) => line !== null);
 
     if (invalidColumnRows.length > 0) {
@@ -98,7 +103,9 @@ export function analyzeCsv(text, options = {}) {
             ? 'L’en-tête correspond exactement au format attendu.'
             : 'L’en-tête ne correspond pas exactement au format attendu.',
         rowCount: rows.length,
-        preview: rows.slice(0, limits.previewRows).map((row) => maskPreviewRow(row)),
+        preview: headerValid
+            ? rows.slice(0, limits.previewRows).map((row) => maskPreviewRow(row, headerContract))
+            : [],
         warnings,
         syntaxValid: true,
     };
@@ -220,28 +227,33 @@ function parseCsvRecords(contents) {
     return rows;
 }
 
-function headerWarning(header) {
-    const duplicates = CSV_HEADER.filter((name) => header.filter((value) => value === name).length > 1);
-    const missing = CSV_HEADER.filter((name) => !header.includes(name));
-    const unexpected = header.filter((name) => !CSV_HEADER.includes(name));
+function headerWarnings(header, headerContract) {
+    const warnings = [];
+    const duplicates = headerContract.filter((name) => header.filter((value) => value === name).length > 1);
+    const missing = headerContract.filter((name) => !header.includes(name));
+    const unexpected = header.filter((name) => !headerContract.includes(name));
 
     if (duplicates.length > 0) {
-        return `En-tête dupliqué : ${[...new Set(duplicates)].join(', ')}.`;
+        warnings.push(`En-tête dupliqué : ${[...new Set(duplicates)].join(', ')}.`);
     }
 
     if (missing.length > 0) {
-        return `En-tête manquant : ${missing.join(', ')}.`;
+        warnings.push(`En-tête manquant : ${missing.join(', ')}.`);
     }
 
     if (unexpected.length > 0) {
-        return 'Le fichier contient un ou plusieurs en-têtes inattendus.';
+        warnings.push('Le fichier contient un ou plusieurs en-têtes inattendus.');
     }
 
-    return 'Les en-têtes CSV ne sont pas dans l’ordre attendu.';
+    return warnings.length > 0 ? warnings : ['Les en-têtes CSV ne sont pas dans l’ordre attendu.'];
 }
 
-function maskPreviewRow(row) {
-    return CSV_HEADER.map((column, index) => {
+function maskPreviewRow(row, headerContract) {
+    if (row.length !== headerContract.length) {
+        return headerContract.map(() => 'Donnée non affichée');
+    }
+
+    return headerContract.map((column, index) => {
         const value = row[index] ?? '';
         return sensitiveColumns.has(column) ? maskSensitiveValue(column, value) : value;
     });
@@ -253,17 +265,14 @@ function maskSensitiveValue(column, value) {
     }
 
     if (column === 'email') {
-        const separator = value.lastIndexOf('@');
-        return separator > 0 ? `${value[0]}•••${value.slice(separator)}` : '•••';
+        return '••••••';
     }
 
     if (column === 'phone') {
-        const digits = value.replace(/\D/gu, '');
-        return digits.length > 2 ? `••••${digits.slice(-2)}` : '••••';
+        return '••••••';
     }
 
-    const normalized = value.replace(/\s+/gu, ' ').trim();
-    return normalized.length > 48 ? `${normalized.slice(0, 48)}…` : normalized;
+    return `[message masqué — ${[...value].length} caractères]`;
 }
 
 function arraysEqual(left, right) {

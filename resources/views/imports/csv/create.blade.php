@@ -34,7 +34,14 @@
                 <p class="mt-4 text-sm leading-6 text-slate-600">
                     La prévisualisation éventuelle reste informative : Laravel est l’unique autorité de validation lors de l’import.
                 </p>
-                <div data-csv-import-preview data-input-id="csv_file" class="mt-5"></div>
+                <div
+                    data-csv-import-preview
+                    data-input-id="csv_file"
+                    data-header='@json($header)'
+                    data-max-bytes="{{ config('leadops.csv_import.max_bytes') }}"
+                    data-max-rows="{{ config('leadops.csv_import.max_rows') }}"
+                    class="mt-5"
+                ></div>
                 <button type="submit" class="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 sm:w-auto">
                     Lancer l’import
                 </button>

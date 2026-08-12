@@ -4,12 +4,13 @@ import test from 'node:test';
 import {
     analyzeCsv,
     analyzeCsvBytes,
+    canReadCsvFile,
     clearFileSelection,
-    CSV_HEADER,
+    DEFAULT_CSV_HEADER,
     CSV_LIMITS,
 } from '../../resources/js/csv-import-parser.js';
 
-const header = CSV_HEADER.join(',');
+const header = DEFAULT_CSV_HEADER.join(',');
 
 function row(overrides = {}) {
     const values = {
@@ -28,7 +29,7 @@ function row(overrides = {}) {
         ...overrides,
     };
 
-    return CSV_HEADER.map((column) => quote(values[column])).join(',');
+    return DEFAULT_CSV_HEADER.map((column) => quote(values[column])).join(',');
 }
 
 function quote(value) {
@@ -37,31 +38,44 @@ function quote(value) {
 
 test('accepte un BOM initial et refuse un BOM ailleurs', () => {
     assert.equal(analyzeCsv(`\uFEFF${header}\n${row()}`).headerValid, true);
+    assert.equal(
+        analyzeCsvBytes(new TextEncoder().encode(`\uFEFF${header}\n${row()}`)).headerValid,
+        true,
+    );
 
     const lateBom = analyzeCsv(`${header}\n${row()}\n\uFEFF${row({ external_reference: 'csv-fictif-002' })}`);
     assert.equal(lateBom.syntaxValid, false);
     assert.match(lateBom.warnings.at(-1), /uniquement au début/u);
+
+    const lateBomBytes = analyzeCsvBytes(
+        new TextEncoder().encode(`${header}\n${row()}\n\uFEFF${row({ external_reference: 'csv-fictif-002' })}`),
+    );
+    assert.equal(lateBomBytes.syntaxValid, false);
+    assert.match(lateBomBytes.warnings.at(-1), /uniquement au début/u);
 });
 
 test('identifie un en-tête exact ou incorrect', () => {
     assert.equal(analyzeCsv(`${header}\n${row()}`).headerValid, true);
 
-    const wrongHeader = [CSV_HEADER[1], CSV_HEADER[0], ...CSV_HEADER.slice(2)].join(',');
+    const wrongHeader = [DEFAULT_CSV_HEADER[1], DEFAULT_CSV_HEADER[0], ...DEFAULT_CSV_HEADER.slice(2)].join(',');
     const analysis = analyzeCsv(`${wrongHeader}\n${row()}`);
     assert.equal(analysis.headerValid, false);
     assert.match(analysis.warnings[0], /ordre attendu/u);
+    assert.deepEqual(analysis.preview, []);
 });
 
-test('analyse les virgules, guillemets échappés et champs multilignes', () => {
-    const analysis = analyzeCsv(`${header}\n${row({
-        company: 'Atelier, Démo',
-        message: 'Une demande "fictive"\nsur deux lignes',
-    })}`);
+test('analyse CRLF, LF, CR, virgules, guillemets échappés et champs multilignes', () => {
+    for (const lineEnding of ['\r\n', '\n', '\r']) {
+        const analysis = analyzeCsv(`${header}${lineEnding}${row({
+            company: 'Atelier, Démo',
+            message: `Une demande "fictive"${lineEnding}sur deux lignes`,
+        })}`);
 
-    assert.equal(analysis.syntaxValid, true);
-    assert.equal(analysis.rowCount, 1);
-    assert.equal(analysis.preview[0][3], 'Atelier, Démo');
-    assert.equal(analysis.preview[0][9], 'Une demande "fictive" sur deux lignes');
+        assert.equal(analysis.syntaxValid, true);
+        assert.equal(analysis.rowCount, 1);
+        assert.equal(analysis.preview[0][3], 'Atelier, Démo');
+        assert.match(analysis.preview[0][9], /^\[message masqué/u);
+    }
 });
 
 test('signale un fichier vide, un UTF-8 invalide et une syntaxe incorrecte', () => {
@@ -84,13 +98,48 @@ test('signale les limites de taille et de lignes sans bloquer le flux HTML', () 
     assert.ok(analysis.warnings.some((warning) => warning.includes('500 lignes')));
 });
 
+test('contrôle la taille avant que le composant lise le contenu', async () => {
+    assert.equal(canReadCsvFile(CSV_LIMITS.maxBytes), true);
+    assert.equal(canReadCsvFile(CSV_LIMITS.maxBytes + 1), false);
+
+    const component = await readFile(
+        new URL('../../resources/js/components/CsvImportPreview.vue', import.meta.url),
+        'utf8',
+    );
+    assert.ok(
+        component.indexOf('if (!canReadCsvFile(selectedFile.size, props.maxBytes))')
+            < component.indexOf('const buffer = await selectedFile.arrayBuffer()'),
+    );
+});
+
+test('compte les lignes vides et la dernière ligne comme le parseur Laravel', () => {
+    const withoutFinalNewline = analyzeCsv(`${header}\n${row()}`);
+    const withFinalNewline = analyzeCsv(`${header}\n${row()}\n`);
+    const withBlankRecord = analyzeCsv(`${header}\n${row()}\n\n`);
+
+    assert.equal(withoutFinalNewline.rowCount, 1);
+    assert.equal(withFinalNewline.rowCount, 1);
+    assert.equal(withBlankRecord.rowCount, 2);
+    assert.match(withBlankRecord.warnings.at(-1), /colonnes incorrect/u);
+    assert.ok(withBlankRecord.preview[1].every((value) => value === 'Donnée non affichée'));
+});
+
+test('utilise le contrat d’en-tête fourni par Laravel', () => {
+    const serverHeader = [...DEFAULT_CSV_HEADER];
+    assert.equal(analyzeCsv(`${serverHeader.join(',')}\n${row()}`, { header: serverHeader }).headerValid, true);
+
+    const changedServerHeader = [...serverHeader.slice(0, -1), 'server_only_column'];
+    assert.equal(analyzeCsv(`${header}\n${row()}`, { header: changedServerHeader }).headerValid, false);
+});
+
 test('masque les valeurs sensibles dans l’aperçu', () => {
     const analysis = analyzeCsv(`${header}\n${row()}`);
 
-    assert.equal(analysis.preview[0][4], 'a•••@example.test');
-    assert.equal(analysis.preview[0][5], '••••05');
-    assert.ok(analysis.preview[0][9].endsWith('…'));
+    assert.equal(analysis.preview[0][4], '••••••');
+    assert.equal(analysis.preview[0][5], '••••••');
+    assert.match(analysis.preview[0][9], /^\[message masqué — \d+ caractères\]$/u);
     assert.ok(!analysis.preview[0].includes('aline@example.test'));
+    assert.ok(!analysis.preview[0].some((value) => value.includes('Message entièrement fictif')));
 });
 
 test('efface la sélection et rend le focus au champ fichier', () => {
@@ -116,7 +165,27 @@ test('le code de prévisualisation ne contient ni réseau, stockage, console ou 
     ]);
     const source = sources.join('\n');
 
-    for (const forbidden of ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'localStorage', 'sessionStorage', 'console.', 'v-html']) {
+    for (const forbidden of [
+        'fetch(',
+        'XMLHttpRequest',
+        'sendBeacon',
+        'localStorage',
+        'sessionStorage',
+        'indexedDB',
+        'document.cookie',
+        'console.',
+        'v-html',
+    ]) {
         assert.equal(source.includes(forbidden), false, `${forbidden} ne doit pas être utilisé`);
     }
+});
+
+test('la CI exécute les tests JavaScript avant le build Vite', async () => {
+    const workflow = await readFile(
+        new URL('../../.github/workflows/quality-checks.yml', import.meta.url),
+        'utf8',
+    );
+
+    assert.ok(workflow.includes('run: npm run test:js'));
+    assert.ok(workflow.indexOf('run: npm run test:js') < workflow.indexOf('run: npm run build'));
 });

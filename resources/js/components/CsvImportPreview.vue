@@ -1,10 +1,22 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { analyzeCsvBytes, clearFileSelection, CSV_HEADER } from '../csv-import-parser.js';
+import { analyzeCsvBytes, canReadCsvFile, clearFileSelection } from '../csv-import-parser.js';
 
 const props = defineProps({
     inputId: {
         type: String,
+        required: true,
+    },
+    header: {
+        type: Array,
+        required: true,
+    },
+    maxBytes: {
+        type: Number,
+        required: true,
+    },
+    maxRows: {
+        type: Number,
         required: true,
     },
 });
@@ -37,7 +49,8 @@ const liveStatus = computed(() => {
     }
 
     const warningCount = analysis.value.warnings.length;
-    return `${file.value.name}, ${analysis.value.rowCount} lignes détectées, ${warningCount} avertissement${warningCount > 1 ? 's' : ''}.`;
+    const rowLabel = analysis.value.rowCount === 1 ? 'ligne détectée' : 'lignes détectées';
+    return `${file.value.name}, ${analysis.value.rowCount} ${rowLabel}, ${warningCount} avertissement${warningCount > 1 ? 's' : ''}.`;
 });
 
 async function handleSelection(event) {
@@ -54,10 +67,28 @@ async function handleSelection(event) {
 
     reading.value = true;
 
+    if (!canReadCsvFile(selectedFile.size, props.maxBytes)) {
+        analysis.value = {
+            headerValid: false,
+            headerMessage: 'L’en-tête n’a pas été lu.',
+            rowCount: 0,
+            preview: [],
+            syntaxValid: false,
+            warnings: ['Le fichier dépasse la limite de 2 Mio. Son contenu n’a pas été lu dans le navigateur.'],
+        };
+        reading.value = false;
+        return;
+    }
+
     try {
         const buffer = await selectedFile.arrayBuffer();
         if (sequence === readSequence.value) {
-            analysis.value = analyzeCsvBytes(buffer, { sizeBytes: selectedFile.size });
+            analysis.value = analyzeCsvBytes(buffer, {
+                header: props.header,
+                maxBytes: props.maxBytes,
+                maxRows: props.maxRows,
+                sizeBytes: selectedFile.size,
+            });
         }
     } catch {
         if (sequence === readSequence.value) {
@@ -152,7 +183,7 @@ onBeforeUnmount(() => {
                         </caption>
                         <thead class="bg-slate-100 text-slate-700">
                             <tr>
-                                <th v-for="column in CSV_HEADER" :key="column" scope="col" class="whitespace-nowrap px-3 py-3 font-bold">
+                                <th v-for="column in header" :key="column" scope="col" class="whitespace-nowrap px-3 py-3 font-bold">
                                     {{ column }}
                                 </th>
                             </tr>
