@@ -16,8 +16,10 @@
             <div role="alert" aria-labelledby="error-summary-title" class="mb-6 rounded-xl border border-red-300 bg-red-50 p-4 text-red-950">
                 <h2 id="error-summary-title" class="font-bold">Le formulaire contient des erreurs.</h2>
                 <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
+                    @foreach ($errors->messages() as $field => $messages)
+                        @foreach ($messages as $error)
+                            <li><a href="#{{ $field }}" class="font-semibold underline underline-offset-2">{{ $error }}</a></li>
+                        @endforeach
                     @endforeach
                 </ul>
             </div>
@@ -100,11 +102,12 @@
 
             <div @class(['mt-6 rounded-xl border p-4', 'border-red-300 bg-red-50' => $errors->has('consent'), 'border-slate-200 bg-slate-50' => ! $errors->has('consent')])>
                 <div class="flex items-start gap-3">
-                    <input id="consent" name="consent" type="checkbox" value="1" @checked(old('consent'))
+                    <input id="consent" name="consent" type="checkbox" value="1" required @checked(old('consent'))
                         class="mt-1 h-5 w-5 shrink-0 rounded border-slate-400 text-blue-700 focus:ring-blue-600"
                         @if ($errors->has('consent')) aria-invalid="true" aria-describedby="consent-error" @endif>
                     <label for="consent" class="text-sm font-semibold leading-6 text-slate-800">
                         Je confirme que ces données sont fictives et j’accepte leur traitement dans cette démonstration. <span class="text-red-700" aria-hidden="true">*</span>
+                        <span class="sr-only">(obligatoire)</span>
                     </label>
                 </div>
                 @error('consent')

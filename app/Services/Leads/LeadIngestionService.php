@@ -7,6 +7,7 @@ use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Domain\LeadProcessing\Enums\ProcessingEventType;
 use App\Jobs\ProcessLead;
 use App\Models\Lead;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 final class LeadIngestionService
@@ -21,14 +22,27 @@ final class LeadIngestionService
         string $externalReference,
         array $attributes,
     ): LeadIngestionResult {
-        return DB::transaction(function () use ($source, $externalReference, $attributes): LeadIngestionResult {
+        $receivedAttributes = Arr::only($attributes, [
+            'first_name',
+            'last_name',
+            'company',
+            'email',
+            'phone',
+            'country',
+            'service_interest',
+            'company_size',
+            'message',
+            'consent',
+        ]);
+
+        return DB::transaction(function () use ($source, $externalReference, $receivedAttributes): LeadIngestionResult {
             $lead = Lead::query()->createOrFirst(
                 [
                     'source' => $source->value,
                     'external_reference' => $externalReference,
                 ],
                 [
-                    ...$attributes,
+                    ...$receivedAttributes,
                     'status' => LeadStatus::Received->value,
                     'processing_attempts' => 0,
                     'received_at' => now(),

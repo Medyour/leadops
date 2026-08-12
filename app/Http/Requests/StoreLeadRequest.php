@@ -38,6 +38,7 @@ class StoreLeadRequest extends FormRequest
             'external_reference.uuid' => 'La référence du formulaire est invalide. Ouvrez un nouveau formulaire.',
             'email.required_without' => 'Renseignez une adresse e-mail ou un téléphone.',
             'phone.required_without' => 'Renseignez un téléphone ou une adresse e-mail.',
+            'phone.regex' => 'Le format du téléphone est invalide.',
             'consent.accepted' => 'Le consentement explicite est requis.',
         ];
     }

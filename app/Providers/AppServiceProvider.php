@@ -25,7 +25,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         RateLimiter::for('lead-form', function (Request $request): Limit {
-            return Limit::perMinute(5)->by($request->ip());
+            $clientKey = hash_hmac(
+                'sha256',
+                $request->ip(),
+                (string) config('app.key'),
+            );
+
+            return Limit::perMinute(5)->by('lead-form:'.$clientKey);
         });
     }
 }
