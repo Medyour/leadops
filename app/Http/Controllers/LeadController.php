@@ -9,35 +9,21 @@ use App\Domain\LeadProcessing\Enums\ServiceInterest;
 use App\Http\Requests\LeadIndexRequest;
 use App\Http\Requests\StoreLeadRequest;
 use App\Models\Lead;
+use App\Queries\LeadListQuery;
 use App\Services\Leads\LeadIngestionService;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Str;
 
 class LeadController extends Controller
 {
-    public function index(LeadIndexRequest $request): View
+    public function index(LeadIndexRequest $request, LeadListQuery $leadListQuery): View
     {
         $filters = $request->validated();
-        $query = Lead::query();
-
-        foreach (['status', 'classification', 'source', 'assigned_to'] as $filter) {
-            $query->when($filters[$filter] ?? null, fn (Builder $query, string $value) => $query->where($filter, $value));
-        }
-
-        $query->when($filters['search'] ?? null, function (Builder $query, string $search): void {
-            $query->where(function (Builder $query) use ($search): void {
-                $query->where('external_reference', 'like', "%{$search}%")
-                    ->orWhere('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('company', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
-            });
-        });
+        $query = $leadListQuery->apply(Lead::query(), $filters);
 
         return view('leads.index', [
-            'leads' => $query->orderByDesc('received_at')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'leads' => $query->paginate(20)->withQueryString(),
             'filters' => $filters,
             'statuses' => LeadStatus::cases(),
             'classifications' => LeadClassification::cases(),

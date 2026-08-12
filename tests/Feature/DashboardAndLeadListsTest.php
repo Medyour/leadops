@@ -6,6 +6,7 @@ use App\Domain\LeadProcessing\Enums\LeadClassification;
 use App\Domain\LeadProcessing\Enums\LeadSource;
 use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Models\Lead;
+use App\Models\ProcessingEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -27,14 +28,16 @@ class DashboardAndLeadListsTest extends TestCase
 
     public function test_dashboard_aggregates_are_exact_and_include_zero_categories(): void
     {
-        Lead::factory()->count(2)->routed()->create([
+        $routed = Lead::factory()->count(2)->routed()->create([
             'source' => LeadSource::Form,
             'classification' => LeadClassification::Hot,
         ]);
         Lead::factory()->needsReview()->create(['source' => LeadSource::Csv]);
         Lead::factory()->failed()->create(['source' => LeadSource::Csv]);
 
-        $this->get(route('dashboard'))
+        $routed->each(fn (Lead $lead) => ProcessingEvent::factory()->count(5)->for($lead)->create());
+
+        $response = $this->get(route('dashboard'))
             ->assertOk()
             ->assertViewHas('totalLeads', 4)
             ->assertViewHas('totalExceptions', 2)
@@ -56,6 +59,22 @@ class DashboardAndLeadListsTest extends TestCase
             ->assertSee(route('leads.index', ['status' => 'INVALID']), false)
             ->assertSee(route('leads.index', ['classification' => 'WARM']), false)
             ->assertSee(route('leads.index', ['source' => 'webhook']), false);
+
+        foreach ([
+            'status' => $response->viewData('statusCounts'),
+            'classification' => $response->viewData('classificationCounts'),
+            'source' => $response->viewData('sourceCounts'),
+        ] as $filter => $counts) {
+            foreach ($counts as $value => $count) {
+                $this->get(route('leads.index', [$filter => $value]))
+                    ->assertOk()
+                    ->assertViewHas('leads', fn ($leads): bool => $leads->total() === $count);
+            }
+        }
+
+        $this->get(route('exceptions.index'))
+            ->assertOk()
+            ->assertViewHas('leads', fn ($leads): bool => $leads->total() === $response->viewData('totalExceptions'));
     }
 
     public function test_each_lead_enum_and_assignment_filter_is_applied(): void
@@ -137,6 +156,31 @@ class DashboardAndLeadListsTest extends TestCase
         $this->get(route('exceptions.index', ['status' => LeadStatus::Routed->value]))
             ->assertRedirect()
             ->assertSessionHasErrors('status');
+
+        $this->get(route('exceptions.index', ['status' => ['FAILED', 'ROUTED']]))
+            ->assertRedirect()
+            ->assertSessionHasErrors('status');
+    }
+
+    public function test_assigned_to_validation_uses_the_configured_routing_values(): void
+    {
+        config(['leadops.routing' => [
+            'automation' => 'Nova',
+            'api' => 'Nova',
+        ]]);
+        Lead::factory()->routed()->create([
+            'external_reference' => 'configured-assignee',
+            'assigned_to' => 'Nova',
+        ]);
+
+        $this->get(route('leads.index', ['assigned_to' => 'Nova']))
+            ->assertOk()
+            ->assertSee('configured-assignee')
+            ->assertSee('<option value="Nova" selected', false);
+
+        $this->get(route('leads.index', ['assigned_to' => 'Sarah']))
+            ->assertRedirect()
+            ->assertSessionHasErrors('assigned_to');
     }
 
     public function test_combined_filters_only_return_matching_leads(): void
@@ -184,6 +228,52 @@ class DashboardAndLeadListsTest extends TestCase
             ->assertSee('status=ROUTED', false)
             ->assertSee('search=example.test', false)
             ->assertSee('page=2', false);
+    }
+
+    public function test_pagination_never_duplicates_the_page_parameter(): void
+    {
+        Lead::factory()->count(45)->routed()->create();
+
+        $html = $this->get(route('leads.index', [
+            'status' => 'ROUTED',
+            'page' => 2,
+        ]))->assertOk()->getContent();
+
+        preg_match_all('/href="([^"]*page=[^"]*)"/', $html, $matches);
+        $this->assertNotEmpty($matches[1]);
+
+        foreach ($matches[1] as $href) {
+            preg_match_all('/(?:\?|&amp;)page=/', $href, $pageParameters);
+            $this->assertCount(1, $pageParameters[0], $href);
+            $this->assertStringContainsString('status=ROUTED', $href);
+        }
+    }
+
+    public function test_search_treats_sql_wildcards_as_literals_and_is_case_insensitive_on_sqlite(): void
+    {
+        foreach ([
+            '%' => ['literal%-needle', 'literalX-needle'],
+            '_' => ['literal_needle', 'literalXneedle'],
+            '\\' => ['literal\\needle', 'literalXneedle'],
+        ] as $search => [$matchingReference, $otherReference]) {
+            Lead::query()->delete();
+            Lead::factory()->create(['external_reference' => $matchingReference]);
+            Lead::factory()->create(['external_reference' => $otherReference]);
+
+            $this->get(route('leads.index', ['search' => $search]))
+                ->assertOk()
+                ->assertSee($matchingReference)
+                ->assertDontSee($otherReference);
+        }
+
+        Lead::query()->delete();
+        Lead::factory()->create(['external_reference' => 'MixedCaseNeedle']);
+        Lead::factory()->create(['external_reference' => 'unrelated-case']);
+
+        $this->get(route('leads.index', ['search' => 'mixedcaseneedle']))
+            ->assertOk()
+            ->assertSee('MixedCaseNeedle')
+            ->assertDontSee('unrelated-case');
     }
 
     public function test_results_are_ordered_by_received_at_then_descending_id(): void
@@ -260,6 +350,31 @@ class DashboardAndLeadListsTest extends TestCase
                 ->assertSee(e($script), false)
                 ->assertDontSee($script, false);
             $this->assertLessThanOrEqual(2, $selects->count(), $selects->pluck('query')->implode("\n"));
+
+            $dataQuery = $selects->first(fn (array $query): bool => str_contains(strtolower($query['query']), ' limit '));
+            $this->assertNotNull($dataQuery);
+            $this->assertStringNotContainsString('select *', strtolower($dataQuery['query']));
+            foreach (['email', 'phone', 'message', 'normalized_email', 'normalized_phone'] as $unusedColumn) {
+                $this->assertStringNotContainsString('"'.$unusedColumn.'"', $dataQuery['query']);
+            }
         }
+    }
+
+    public function test_tables_filters_and_pagination_have_accessible_structure(): void
+    {
+        Lead::factory()->count(21)->routed()->create();
+
+        $this->get(route('leads.index'))
+            ->assertOk()
+            ->assertSee('<caption class="sr-only">Liste filtrée des leads</caption>', false)
+            ->assertSee('<th scope="col"', false)
+            ->assertSee('<th scope="row"', false)
+            ->assertSee('label for="search"', false)
+            ->assertSee('label for="status"', false)
+            ->assertSee('label for="classification"', false)
+            ->assertSee('label for="source"', false)
+            ->assertSee('label for="assigned_to"', false)
+            ->assertSee('role="navigation"', false)
+            ->assertSee('aria-label="Pagination Navigation"', false);
     }
 }
