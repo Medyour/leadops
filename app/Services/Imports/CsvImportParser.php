@@ -43,6 +43,10 @@ final class CsvImportParser
             throw new InvalidCsvFile(['Le fichier est vide.']);
         }
 
+        if (str_contains($contents, "\xEF\xBB\xBF")) {
+            throw new InvalidCsvFile(['Le BOM UTF-8 est autorisé uniquement au début du fichier.']);
+        }
+
         $rows = $this->parseRecords($contents);
 
         if ($rows === []) {

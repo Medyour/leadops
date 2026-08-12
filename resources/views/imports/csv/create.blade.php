@@ -8,14 +8,14 @@
             <p class="text-sm font-bold uppercase tracking-widest text-blue-700">Réception par lot</p>
             <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Importer des leads fictifs</h1>
             <p class="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                Import local uniquement. Le fichier est analysé en mémoire puis supprimé automatiquement ; il n’est jamais conservé.
+                Import local uniquement. L’upload HTTP peut utiliser un fichier temporaire géré par PHP ; LeadOps n’enregistre aucune copie applicative ou permanente.
             </p>
         </div>
 
         @if ($errors->any())
             <div role="alert" aria-labelledby="csv-error-title" class="mb-6 rounded-xl border border-red-300 bg-red-50 p-4 text-red-950">
                 <h2 id="csv-error-title" class="font-bold">L’import n’a pas démarré.</h2>
-                <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+                <ul id="csv-file-errors" class="mt-2 list-disc space-y-1 pl-5 text-sm">
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
                     @endforeach
@@ -28,7 +28,8 @@
                 @csrf
                 <label for="csv_file" class="block text-base font-bold text-slate-950">Fichier CSV</label>
                 <p id="csv-file-help" class="mt-1 text-sm leading-6 text-slate-600">UTF-8, virgule, 2 Mio maximum et 500 lignes de données maximum.</p>
-                <input id="csv_file" name="csv_file" type="file" accept=".csv,text/csv" required aria-describedby="csv-file-help"
+                <input id="csv_file" name="csv_file" type="file" accept=".csv,text/csv" required aria-describedby="csv-file-help{{ $errors->has('csv_file') ? ' csv-file-errors' : '' }}"
+                    @if ($errors->has('csv_file')) aria-invalid="true" @endif
                     class="mt-4 block w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-800 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-100 file:px-3 file:py-2 file:font-bold file:text-blue-900 hover:file:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-600">
                 <button type="submit" class="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 sm:w-auto">
                     Lancer l’import
@@ -38,7 +39,7 @@
             <aside aria-labelledby="csv-format-title" class="rounded-2xl border border-slate-200 bg-slate-100 p-5 sm:p-6">
                 <h2 id="csv-format-title" class="text-lg font-black text-slate-950">Format attendu</h2>
                 <ul class="mt-3 space-y-1 text-sm leading-6 text-slate-700">
-                    <li>Encodage UTF-8, BOM facultatif</li>
+                    <li>Encodage UTF-8, BOM facultatif uniquement au début</li>
                     <li>Séparateur virgule</li>
                     <li>Valeurs citées selon le format CSV</li>
                     <li>En-têtes strictement ordonnés</li>

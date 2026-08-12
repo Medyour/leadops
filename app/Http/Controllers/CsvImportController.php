@@ -79,10 +79,9 @@ final class CsvImportController extends Controller
                 $status = $result->created ? 'created' : 'already_received';
                 $summary[$status]++;
                 $summary['results'][] = $this->lineResult($line, $status, [], $reference);
-            } catch (Throwable $exception) {
+            } catch (Throwable) {
                 Log::warning('CSV lead row ingestion failed.', [
                     'line' => $line,
-                    'exception_class' => $exception::class,
                 ]);
                 $summary['invalid']++;
                 $summary['results'][] = $this->lineResult($line, 'invalid', ['row'], $reference);
