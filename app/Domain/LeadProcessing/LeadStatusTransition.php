@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Services\Leads\ProcessingEventRecorder;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 final class LeadStatusTransition
 {
@@ -16,41 +17,51 @@ final class LeadStatusTransition
     /** @param array<string, mixed> $context */
     public function transition(Lead $lead, LeadStatus $to, ?int $attempt = null, array $context = []): void
     {
-        DB::transaction(function () use ($lead, $to, $attempt, $context): void {
-            $from = $lead->status;
+        try {
+            DB::transaction(function () use ($lead, $to, $attempt, $context): void {
+                $from = $lead->status;
 
-            if (! $from->canTransitionTo($to)) {
-                throw new DomainException("Transition from {$from->value} to {$to->value} is not allowed.");
+                if (! $from->canTransitionTo($to)) {
+                    throw new DomainException("Transition from {$from->value} to {$to->value} is not allowed.");
+                }
+
+                $attributes = ['status' => $to];
+
+                if ($to === LeadStatus::Validating && in_array($from, [LeadStatus::Failed, LeadStatus::NeedsReview], true)) {
+                    $attributes += [
+                        'score' => null,
+                        'classification' => null,
+                        'assigned_to' => null,
+                        'duplicate_of' => null,
+                        'processing_attempts' => 0,
+                        'processed_at' => null,
+                    ];
+                }
+
+                if ($to === LeadStatus::Routed) {
+                    $attributes['processed_at'] = now();
+                }
+
+                $lead->forceFill($attributes)->save();
+
+                $this->recorder->record(
+                    $lead,
+                    $this->eventTypeFor($to),
+                    $attempt,
+                    $context,
+                    $from,
+                    $to,
+                );
+            });
+        } catch (Throwable $exception) {
+            try {
+                $lead->refresh();
+            } catch (Throwable) {
+                // Preserve the original transition failure if the database is unavailable.
             }
 
-            $attributes = ['status' => $to];
-
-            if ($to === LeadStatus::Validating && in_array($from, [LeadStatus::Failed, LeadStatus::NeedsReview], true)) {
-                $attributes += [
-                    'score' => null,
-                    'classification' => null,
-                    'assigned_to' => null,
-                    'duplicate_of' => null,
-                    'processing_attempts' => 0,
-                    'processed_at' => null,
-                ];
-            }
-
-            if ($to === LeadStatus::Routed) {
-                $attributes['processed_at'] = now();
-            }
-
-            $lead->forceFill($attributes)->save();
-
-            $this->recorder->record(
-                $lead,
-                $this->eventTypeFor($to),
-                $attempt,
-                $context,
-                $from,
-                $to,
-            );
-        });
+            throw $exception;
+        }
     }
 
     private function eventTypeFor(LeadStatus $status): ProcessingEventType

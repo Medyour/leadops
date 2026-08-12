@@ -66,8 +66,9 @@ return [
     'processing' => [
         'max_attempts' => 3,
         'backoff' => [1, 5],
-        'overlap_release_after' => 1,
-        'lock_expires_after' => 300,
+        'job_timeout' => 60,
+        'lock_expires_after' => 75,
+        'unique_for' => 300,
     ],
 
     'transmission' => [

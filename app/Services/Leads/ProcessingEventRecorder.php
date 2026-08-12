@@ -16,7 +16,7 @@ final class ProcessingEventRecorder
         'error_code',
         'idempotency_key',
         'reason_codes',
-        'reference',
+        'reference_fingerprint',
         'retry_delay',
         'rule_codes',
         'score',

@@ -3,22 +3,26 @@
 namespace App\Jobs;
 
 use App\Services\Leads\LeadProcessor;
-use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
-class ProcessLead implements ShouldBeUniqueUntilProcessing, ShouldQueue
+class ProcessLead implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
     public int $tries = 3;
 
-    public int $uniqueFor = 300;
+    public int $uniqueFor;
+
+    public int $timeout;
 
     public function __construct(public readonly int $leadId)
     {
+        $this->uniqueFor = (int) config('leadops.processing.unique_for');
+        $this->timeout = (int) config('leadops.processing.job_timeout');
         $this->onConnection('database');
         $this->onQueue('lead-processing');
         $this->afterCommit();
@@ -35,7 +39,7 @@ class ProcessLead implements ShouldBeUniqueUntilProcessing, ShouldQueue
     {
         return [
             (new WithoutOverlapping($this->uniqueId()))
-                ->releaseAfter((int) config('leadops.processing.overlap_release_after'))
+                ->dontRelease()
                 ->expireAfter((int) config('leadops.processing.lock_expires_after'))
                 ->shared(),
         ];
@@ -53,6 +57,6 @@ class ProcessLead implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        app(LeadProcessor::class)->markFailedAfterExhaustion($this->leadId);
+        app(LeadProcessor::class)->markFailedAfterExhaustion($this->leadId, $this->attempts());
     }
 }
