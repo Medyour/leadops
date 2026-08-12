@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\CsvImportController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExceptionController;
 use App\Http\Controllers\LeadController;
@@ -14,5 +15,10 @@ Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.crea
 Route::post('/leads', [LeadController::class, 'store'])
     ->middleware('throttle:lead-form')
     ->name('leads.store');
+
+Route::get('/imports/csv', [CsvImportController::class, 'create'])->name('imports.csv.create');
+Route::post('/imports/csv', [CsvImportController::class, 'store'])
+    ->middleware('throttle:csv-import')
+    ->name('imports.csv.store');
 
 Route::get('/leads/{lead}', [LeadController::class, 'show'])->name('leads.show');

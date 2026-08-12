@@ -1,6 +1,12 @@
 <?php
 
 return [
+    'csv_import' => [
+        'max_bytes' => 2 * 1024 * 1024,
+        'max_rows' => 500,
+        'rate_limit_per_minute' => 3,
+    ],
+
     'local_webhook' => [
         'rate_limit_per_minute' => max(1, min(
             600,
