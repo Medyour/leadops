@@ -34,6 +34,17 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by('lead-form:'.$clientKey);
         });
 
+        RateLimiter::for('csv-import', function (Request $request): Limit {
+            $clientKey = hash_hmac(
+                'sha256',
+                (string) $request->ip(),
+                (string) config('app.key'),
+            );
+
+            return Limit::perMinute((int) config('leadops.csv_import.rate_limit_per_minute'))
+                ->by('csv-import:'.$clientKey);
+        });
+
         RateLimiter::for('local-webhook', function (Request $request): Limit {
             $clientKey = hash_hmac(
                 'sha256',
