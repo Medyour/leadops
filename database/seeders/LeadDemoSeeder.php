@@ -3,72 +3,164 @@
 namespace Database\Seeders;
 
 use App\Domain\LeadProcessing\Enums\LeadClassification;
+use App\Domain\LeadProcessing\Enums\LeadSource;
 use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Domain\LeadProcessing\Enums\ProcessingEventType;
 use App\Domain\LeadProcessing\Enums\ServiceInterest;
 use App\Models\Lead;
-use App\Models\ProcessingEvent;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class LeadDemoSeeder extends Seeder
 {
+    private const RECEIVED_AT = '2026-01-15 09:00:00';
+
     public function run(): void
     {
-        $hot = Lead::factory()->routed()->create([
-            'external_reference' => 'demo-hot-001',
-            'first_name' => 'Aline-Fictive',
-            'last_name' => 'Demo',
-            'company' => 'Atelier Exemple',
-        ]);
+        DB::transaction(function (): void {
+            $this->upsertLead('demo-hot-001', [
+                'first_name' => 'Aline-Fictive',
+                'company' => 'Atelier Fictif',
+                'email' => 'aline-fictive@example.test',
+                'phone' => '+12025550100',
+                'normalized_email' => 'aline-fictive@example.test',
+                'normalized_phone' => '+12025550100',
+                'score' => 85,
+                'classification' => LeadClassification::Hot->value,
+                'assigned_to' => 'Sarah',
+                'status' => LeadStatus::Routed->value,
+                'processing_attempts' => 1,
+                'processed_at' => '2026-01-15 09:05:00',
+            ]);
 
-        Lead::factory()->routed()->create([
-            'external_reference' => 'demo-warm-001',
-            'first_name' => 'Benoit-Fictif',
-            'last_name' => 'Demo',
-            'company' => 'Bureau Imaginaire',
-            'service_interest' => ServiceInterest::Dashboard->value,
-            'score' => 65,
-            'classification' => LeadClassification::Warm,
-            'assigned_to' => 'Yassine',
-        ]);
+            $this->upsertLead('demo-warm-001', [
+                'first_name' => 'Benoit-Fictif',
+                'company' => 'Bureau Imaginaire',
+                'email' => 'benoit-fictif@example.test',
+                'phone' => '+12025550101',
+                'normalized_email' => 'benoit-fictif@example.test',
+                'normalized_phone' => '+12025550101',
+                'service_interest' => ServiceInterest::Dashboard->value,
+                'score' => 65,
+                'classification' => LeadClassification::Warm->value,
+                'assigned_to' => 'Yassine',
+                'status' => LeadStatus::Routed->value,
+                'processing_attempts' => 1,
+                'processed_at' => '2026-01-15 09:06:00',
+            ]);
 
-        Lead::factory()->lowPriority()->create([
-            'external_reference' => 'demo-low-001',
-            'first_name' => 'Camille-Fictive',
-            'last_name' => 'Demo',
-            'status' => LeadStatus::Routed,
-            'assigned_to' => 'Emma',
-            'processed_at' => now(),
-        ]);
+            $this->upsertLead('demo-low-001', [
+                'first_name' => 'Camille-Fictive',
+                'company' => null,
+                'email' => 'camille-fictive@example.test',
+                'phone' => '+12025550102',
+                'country' => null,
+                'service_interest' => ServiceInterest::Other->value,
+                'company_size' => null,
+                'normalized_email' => 'camille-fictive@example.test',
+                'normalized_phone' => '+12025550102',
+                'score' => 35,
+                'classification' => LeadClassification::Low->value,
+                'assigned_to' => 'Emma',
+                'status' => LeadStatus::Routed->value,
+                'processing_attempts' => 1,
+                'processed_at' => '2026-01-15 09:07:00',
+            ]);
 
-        Lead::factory()->invalidEmail()->create([
-            'external_reference' => 'demo-invalid-001',
-            'first_name' => 'Dorian-Fictif',
-            'last_name' => 'Demo',
-        ]);
+            $this->upsertLead('demo-invalid-001', [
+                'first_name' => 'Dorian-Fictif',
+                'company' => 'Structure Fictive',
+                'email' => 'adresse-invalide',
+                'phone' => null,
+                'normalized_email' => null,
+                'normalized_phone' => null,
+                'status' => LeadStatus::Invalid->value,
+            ]);
 
-        Lead::factory()->duplicateOf($hot)->create([
-            'external_reference' => 'demo-duplicate-001',
-            'first_name' => 'Elise-Fictive',
-            'last_name' => 'Demo',
-        ]);
+            $hot = $this->findLead('demo-hot-001');
+            $warm = $this->findLead('demo-warm-001');
 
-        Lead::factory()->needsReview()->create([
-            'external_reference' => 'demo-review-001',
-            'first_name' => 'Farid-Fictif',
-            'last_name' => 'Demo',
-        ]);
+            $this->upsertLead('demo-duplicate-001', [
+                'first_name' => 'Elise-Fictive',
+                'company' => 'Doublon Fictif',
+                'email' => $hot->email,
+                'phone' => $hot->phone,
+                'normalized_email' => $hot->normalized_email,
+                'normalized_phone' => $hot->normalized_phone,
+                'status' => LeadStatus::Duplicate->value,
+                'duplicate_of' => $hot->getKey(),
+            ]);
 
-        Lead::factory()->failed()->create([
-            'external_reference' => 'demo-failed-001',
-            'first_name' => 'Gaelle-Fictive',
-            'last_name' => 'Demo',
-        ]);
+            $this->upsertLead('demo-review-001', [
+                'first_name' => 'Farid-Fictif',
+                'company' => 'Revue Fictive',
+                'email' => $hot->email,
+                'phone' => $warm->phone,
+                'normalized_email' => $hot->normalized_email,
+                'normalized_phone' => $warm->normalized_phone,
+                'service_interest' => ServiceInterest::Api->value,
+                'status' => LeadStatus::NeedsReview->value,
+            ]);
 
-        $this->createHotLeadTimeline($hot);
+            $this->upsertLead('demo-failed-001', [
+                'first_name' => 'Gaelle-Fictive',
+                'company' => 'Incident Fictif',
+                'email' => 'gaelle-fictive@example.test',
+                'phone' => '+12025550106',
+                'normalized_email' => 'gaelle-fictive@example.test',
+                'normalized_phone' => '+12025550106',
+                'status' => LeadStatus::Failed->value,
+                'processing_attempts' => 3,
+            ]);
+
+            $this->upsertHotLeadTimeline($hot);
+        });
     }
 
-    private function createHotLeadTimeline(Lead $lead): void
+    /** @param array<string, mixed> $overrides */
+    private function upsertLead(string $externalReference, array $overrides): void
+    {
+        DB::table('leads')->updateOrInsert(
+            [
+                'source' => LeadSource::Form->value,
+                'external_reference' => $externalReference,
+            ],
+            array_merge([
+                'first_name' => 'Prenom-Fictif',
+                'last_name' => 'Demo',
+                'company' => 'Entreprise Fictive',
+                'email' => "{$externalReference}@example.test",
+                'phone' => '+12025550199',
+                'country' => 'FR',
+                'service_interest' => ServiceInterest::Automation->value,
+                'company_size' => 12,
+                'message' => 'Message entièrement fictif destiné à la démonstration locale LeadOps.',
+                'consent' => true,
+                'received_at' => self::RECEIVED_AT,
+                'normalized_email' => "{$externalReference}@example.test",
+                'normalized_phone' => '+12025550199',
+                'score' => null,
+                'classification' => null,
+                'assigned_to' => null,
+                'status' => LeadStatus::Received->value,
+                'duplicate_of' => null,
+                'processing_attempts' => 0,
+                'processed_at' => null,
+                'created_at' => self::RECEIVED_AT,
+                'updated_at' => self::RECEIVED_AT,
+            ], $overrides),
+        );
+    }
+
+    private function findLead(string $externalReference): Lead
+    {
+        return Lead::query()
+            ->where('source', LeadSource::Form->value)
+            ->where('external_reference', $externalReference)
+            ->sole();
+    }
+
+    private function upsertHotLeadTimeline(Lead $lead): void
     {
         $events = [
             [ProcessingEventType::LeadReceived, null, LeadStatus::Received],
@@ -80,14 +172,19 @@ class LeadDemoSeeder extends Seeder
         ];
 
         foreach ($events as $position => [$type, $fromStatus, $toStatus]) {
-            ProcessingEvent::factory()->for($lead)->create([
-                'type' => $type,
-                'from_status' => $fromStatus,
-                'to_status' => $toStatus,
-                'attempt' => 1,
-                'context' => ['scenario' => 'demo', 'step' => $position + 1],
-                'created_at' => now()->addSeconds($position),
-            ]);
+            DB::table('processing_events')->updateOrInsert(
+                ['lead_id' => $lead->getKey(), 'type' => $type->value],
+                [
+                    'from_status' => $fromStatus?->value,
+                    'to_status' => $toStatus->value,
+                    'attempt' => 1,
+                    'context' => json_encode(
+                        ['scenario' => 'demo', 'step' => $position + 1],
+                        JSON_THROW_ON_ERROR,
+                    ),
+                    'created_at' => sprintf('2026-01-15 09:00:%02d', $position),
+                ],
+            );
         }
     }
 }

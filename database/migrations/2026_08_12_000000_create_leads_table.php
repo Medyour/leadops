@@ -33,7 +33,8 @@ return new class extends Migration
             $table->foreignId('duplicate_of')->nullable()->constrained('leads')->restrictOnDelete();
             $table->unsignedTinyInteger('processing_attempts')->default(0);
             $table->timestamp('processed_at')->nullable();
-            $table->timestamps();
+            $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('updated_at')->useCurrent();
 
             $table->unique(['source', 'external_reference']);
             $table->index(['status', 'received_at']);

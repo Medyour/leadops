@@ -74,6 +74,52 @@ class DomainFoundationTest extends TestCase
         $eventIndexes = $this->sqliteIndexes('processing_events');
         $this->assertSame(['lead_id', 'created_at'], $eventIndexes['processing_events_lead_id_created_at_index']);
         $this->assertSame(['type'], $eventIndexes['processing_events_type_index']);
+
+        $this->assertSqliteNullability('leads', [
+            'source',
+            'external_reference',
+            'first_name',
+            'last_name',
+            'service_interest',
+            'consent',
+            'received_at',
+            'status',
+            'processing_attempts',
+            'created_at',
+            'updated_at',
+        ], [
+            'company',
+            'email',
+            'phone',
+            'country',
+            'company_size',
+            'message',
+            'normalized_email',
+            'normalized_phone',
+            'score',
+            'classification',
+            'assigned_to',
+            'duplicate_of',
+            'processed_at',
+        ]);
+        $this->assertSqliteNullability('processing_events', [
+            'lead_id',
+            'type',
+            'created_at',
+        ], [
+            'from_status',
+            'to_status',
+            'attempt',
+            'context',
+        ]);
+
+        $leadColumns = $this->sqliteColumns('leads');
+        $this->assertSame("'RECEIVED'", $leadColumns['status']->dflt_value);
+        $this->assertSame("'0'", $leadColumns['consent']->dflt_value);
+        $this->assertSame("'0'", $leadColumns['processing_attempts']->dflt_value);
+        $this->assertSame('CURRENT_TIMESTAMP', $leadColumns['received_at']->dflt_value);
+        $this->assertSame('CURRENT_TIMESTAMP', $leadColumns['created_at']->dflt_value);
+        $this->assertSame('CURRENT_TIMESTAMP', $leadColumns['updated_at']->dflt_value);
     }
 
     public function test_database_defaults_and_model_casts_match_the_domain_contract(): void
@@ -106,6 +152,15 @@ class DomainFoundationTest extends TestCase
         $this->assertSame(80, $lead->score);
         $this->assertSame(LeadClassification::Hot, $lead->classification);
         $this->assertNotNull($lead->processed_at);
+    }
+
+    public function test_service_interest_remains_a_string_for_unknown_review_values(): void
+    {
+        $lead = Lead::factory()->needsReview()->create()->refresh();
+
+        $this->assertSame('service_inconnu', $lead->service_interest);
+        $this->assertIsString($lead->service_interest);
+        $this->assertSame('service_inconnu', $lead->getRawOriginal('service_interest'));
     }
 
     public function test_source_and_external_reference_form_an_idempotency_constraint(): void
@@ -223,6 +278,11 @@ class DomainFoundationTest extends TestCase
     {
         $this->seed(LeadDemoSeeder::class);
 
+        $firstLeadSnapshot = $this->tableSnapshot('leads', 'external_reference');
+        $firstEventSnapshot = $this->tableSnapshot('processing_events', 'id');
+
+        $this->seed(LeadDemoSeeder::class);
+
         $this->assertDatabaseCount('leads', 7);
         $this->assertDatabaseHas('leads', ['classification' => 'HOT', 'assigned_to' => 'Sarah', 'status' => 'ROUTED']);
         $this->assertDatabaseHas('leads', ['classification' => 'WARM', 'assigned_to' => 'Yassine', 'status' => 'ROUTED']);
@@ -232,10 +292,24 @@ class DomainFoundationTest extends TestCase
         $this->assertDatabaseHas('leads', ['status' => 'NEEDS_REVIEW']);
         $this->assertDatabaseHas('leads', ['status' => 'FAILED']);
         $this->assertDatabaseCount('processing_events', 6);
+        $this->assertSame($firstLeadSnapshot, $this->tableSnapshot('leads', 'external_reference'));
+        $this->assertSame($firstEventSnapshot, $this->tableSnapshot('processing_events', 'id'));
+
+        $hot = Lead::query()->where('external_reference', 'demo-hot-001')->sole();
+        $warm = Lead::query()->where('external_reference', 'demo-warm-001')->sole();
+        $review = Lead::query()->where('external_reference', 'demo-review-001')->sole();
+        $this->assertSame($hot->normalized_email, $review->normalized_email);
+        $this->assertSame($warm->normalized_phone, $review->normalized_phone);
+        $this->assertNotSame($hot->getKey(), $warm->getKey());
+        $this->assertNull($review->duplicate_of);
 
         Lead::query()->whereNotNull('email')->each(function (Lead $lead): void {
             if (filter_var($lead->email, FILTER_VALIDATE_EMAIL)) {
                 $this->assertStringEndsWith('@example.test', $lead->email);
+            }
+
+            if ($lead->normalized_phone !== null) {
+                $this->assertMatchesRegularExpression('/^\+120255501\d{2}$/', $lead->normalized_phone);
             }
         });
     }
@@ -269,5 +343,44 @@ class DomainFoundationTest extends TestCase
         }
 
         return $indexes;
+    }
+
+    /** @return array<string, object> */
+    private function sqliteColumns(string $table): array
+    {
+        $columns = [];
+
+        foreach (DB::select("PRAGMA table_info('{$table}')") as $column) {
+            $columns[$column->name] = $column;
+        }
+
+        return $columns;
+    }
+
+    /**
+     * @param  list<string>  $required
+     * @param  list<string>  $nullable
+     */
+    private function assertSqliteNullability(string $table, array $required, array $nullable): void
+    {
+        $columns = $this->sqliteColumns($table);
+
+        foreach ($required as $column) {
+            $this->assertSame(1, $columns[$column]->notnull, "{$table}.{$column} should be required.");
+        }
+
+        foreach ($nullable as $column) {
+            $this->assertSame(0, $columns[$column]->notnull, "{$table}.{$column} should be nullable.");
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function tableSnapshot(string $table, string $orderBy): array
+    {
+        return DB::table($table)
+            ->orderBy($orderBy)
+            ->get()
+            ->map(static fn (object $row): array => (array) $row)
+            ->all();
     }
 }
