@@ -42,7 +42,10 @@ class AppServiceProvider extends ServiceProvider
             );
 
             return Limit::perMinute((int) config('leadops.local_webhook.rate_limit_per_minute'))
-                ->by('local-webhook:'.$clientKey);
+                ->by('local-webhook:'.$clientKey)
+                ->response(static fn (Request $request, array $headers) => response()->json([
+                    'result' => 'rate_limited',
+                ], 429, $headers));
         });
     }
 }

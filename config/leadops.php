@@ -2,7 +2,10 @@
 
 return [
     'local_webhook' => [
-        'rate_limit_per_minute' => (int) env('LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT', 30),
+        'rate_limit_per_minute' => max(1, min(
+            600,
+            (int) env('LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT', 30),
+        )),
     ],
 
     'normalization' => [

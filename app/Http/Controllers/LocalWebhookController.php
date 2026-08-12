@@ -14,7 +14,7 @@ class LocalWebhookController extends Controller
         StoreLocalWebhookLeadRequest $request,
         LeadIngestionService $ingestion,
     ): JsonResponse {
-        $attributes = $request->validated('lead');
+        $attributes = $request->validated('envelope.lead');
         $externalReference = $attributes['external_reference'];
         unset($attributes['external_reference'], $attributes['source']);
 

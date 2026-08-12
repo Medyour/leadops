@@ -90,7 +90,8 @@ champ `source` chaîne est toléré dans `lead` pour les émetteurs génériques
 est toujours ignoré : le serveur persiste `webhook`.
 
 Le débit est limité par client à 30 requêtes par minute par défaut. La valeur se
-configure avec `LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT`; la clé de débit est un HMAC
-de l'adresse réseau et ne conserve jamais l'adresse brute. La route n'utilise
-ni session, ni CSRF, ni authentification fictive. Les réponses ne contiennent
-que `result`, puis l'identifiant et le statut du lead en cas de succès.
+configure avec `LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT` et reste bornée entre 1 et 600
+requêtes par minute ; la clé de débit est un HMAC de l'adresse réseau et ne
+conserve jamais l'adresse brute. La route n'utilise ni session, ni CSRF, ni
+authentification fictive. Les réponses ne contiennent que `result`, puis
+l'identifiant et le statut du lead en cas de succès.

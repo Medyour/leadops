@@ -7,11 +7,15 @@ use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Domain\LeadProcessing\Enums\ProcessingEventType;
 use App\Jobs\ProcessLead;
 use App\Models\Lead;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
+use Monolog\Handler\TestHandler;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -43,6 +47,28 @@ class LocalWebhookTest extends TestCase
         Queue::assertPushed(ProcessLead::class, 1);
     }
 
+    public function test_database_job_is_enqueued_only_after_the_receipt_transaction_commits(): void
+    {
+        config()->set('queue.default', 'database');
+        DB::beginTransaction();
+
+        try {
+            $this->postJson('/api/local/webhooks/leads', $this->validEnvelope())->assertCreated();
+
+            $this->assertDatabaseCount('leads', 1);
+            $this->assertDatabaseCount('processing_events', 1);
+            $this->assertDatabaseCount('jobs', 0);
+
+            DB::commit();
+
+            $this->assertDatabaseCount('jobs', 1);
+        } finally {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+        }
+    }
+
     public function test_repetition_returns_200_with_the_same_lead_without_a_second_job_or_receipt_event(): void
     {
         Queue::fake();
@@ -62,6 +88,29 @@ class LocalWebhookTest extends TestCase
             ],
         ]);
         $this->assertSame('Prénom Fictif', $lead->fresh()->first_name);
+        $this->assertDatabaseCount('leads', 1);
+        $this->assertDatabaseCount('processing_events', 1);
+        Queue::assertPushed(ProcessLead::class, 1);
+    }
+
+    public function test_unique_constraint_conflict_returns_the_existing_lead_safely(): void
+    {
+        Queue::fake();
+        $envelope = $this->validEnvelope();
+        $this->postJson('/api/local/webhooks/leads', $envelope)->assertCreated();
+        $lead = Lead::query()->sole();
+        $queries = [];
+        DB::connection()->beforeExecuting(static function (string $query) use (&$queries): void {
+            $queries[] = $query;
+        });
+
+        $this->postJson('/api/local/webhooks/leads', $envelope)
+            ->assertOk()
+            ->assertJsonPath('lead.id', $lead->id);
+
+        $this->assertTrue(collect($queries)->contains(
+            static fn (string $sql): bool => str_starts_with(strtolower($sql), 'insert into "leads"'),
+        ), 'The repeated request must exercise the unique-constraint conflict path.');
         $this->assertDatabaseCount('leads', 1);
         $this->assertDatabaseCount('processing_events', 1);
         Queue::assertPushed(ProcessLead::class, 1);
@@ -105,6 +154,7 @@ class LocalWebhookTest extends TestCase
 
         yield 'malformed JSON' => ['{"lead":'];
         yield 'unexpected root key' => [[...$valid, 'metadata' => []]];
+        yield 'internal envelope marker injection' => [[...$valid, '_envelope' => ['lead' => []]]];
         yield 'unexpected lead key' => [['lead' => [...$valid['lead'], 'secret' => 'forbidden']]];
         yield 'client source has wrong type' => [['lead' => [...$valid['lead'], 'source' => ['form']]]];
         yield 'missing external reference' => [['lead' => array_diff_key($valid['lead'], ['external_reference' => true])]];
@@ -118,12 +168,39 @@ class LocalWebhookTest extends TestCase
         yield 'country not uppercase ISO shape' => [['lead' => [...$valid['lead'], 'country' => 'fr']]];
         yield 'service format invalid' => [['lead' => [...$valid['lead'], 'service_interest' => 'Automation API']]];
         yield 'date not UTC Z format' => [['lead' => [...$valid['lead'], 'received_at' => '2026-08-12T12:15:30+02:00']]];
+        yield 'date with fractional seconds' => [['lead' => [...$valid['lead'], 'received_at' => '2026-08-12T10:15:30.123Z']]];
+        yield 'invalid UTC calendar date' => [['lead' => [...$valid['lead'], 'received_at' => '2026-02-30T10:15:30Z']]];
         yield 'first name too long' => [['lead' => [...$valid['lead'], 'first_name' => str_repeat('a', 101)]]];
         yield 'last name has wrong type' => [['lead' => [...$valid['lead'], 'last_name' => 123]]];
         yield 'company too long' => [['lead' => [...$valid['lead'], 'company' => str_repeat('a', 151)]]];
         yield 'email too long' => [['lead' => [...$valid['lead'], 'email' => str_repeat('a', 245).'@example.test']]];
         yield 'phone too long' => [['lead' => [...$valid['lead'], 'email' => null, 'phone' => '+'.str_repeat('1', 50)]]];
         yield 'message too long' => [['lead' => [...$valid['lead'], 'message' => str_repeat('a', 5001)]]];
+    }
+
+    public function test_exact_maximum_lengths_are_accepted(): void
+    {
+        Queue::fake();
+        $envelope = $this->validEnvelope();
+        $envelope['lead'] = [
+            ...$envelope['lead'],
+            'external_reference' => 'r'.str_repeat('a', 99),
+            'first_name' => str_repeat('a', 100),
+            'last_name' => str_repeat('b', 100),
+            'company' => str_repeat('c', 150),
+            'email' => str_repeat('e', 241).'@example.test',
+            'phone' => '+'.str_repeat('1', 49),
+            'service_interest' => 's'.str_repeat('a', 49),
+            'message' => str_repeat('m', 5000),
+        ];
+
+        $this->postJson('/api/local/webhooks/leads', $envelope)->assertCreated();
+
+        $lead = Lead::query()->sole();
+        $this->assertSame(100, strlen($lead->external_reference));
+        $this->assertSame(254, strlen($lead->email));
+        $this->assertSame(50, strlen($lead->phone));
+        Queue::assertPushed(ProcessLead::class, 1);
     }
 
     public function test_non_json_input_is_rejected_even_when_its_fields_would_otherwise_be_valid(): void
@@ -186,6 +263,26 @@ class LocalWebhookTest extends TestCase
         $this->assertStringNotContainsString('exception', strtolower($invalid->getContent()));
     }
 
+    public function test_application_logs_never_receive_webhook_payload_or_personal_data(): void
+    {
+        Queue::fake();
+        $handler = new TestHandler;
+        Log::getLogger()->pushHandler($handler);
+        $envelope = $this->validEnvelope();
+
+        $this->postJson('/api/local/webhooks/leads', $envelope)->assertCreated();
+        $this->postJson('/api/local/webhooks/leads', [
+            'lead' => [...$envelope['lead'], 'consent' => false],
+        ])->assertUnprocessable();
+
+        $logs = json_encode($handler->getRecords(), JSON_THROW_ON_ERROR);
+
+        foreach ([$envelope, $envelope['lead']['email'], $envelope['lead']['phone'], $envelope['lead']['message']] as $sensitive) {
+            $needle = is_array($sensitive) ? json_encode($sensitive, JSON_THROW_ON_ERROR) : $sensitive;
+            $this->assertStringNotContainsString($needle, $logs);
+        }
+    }
+
     public function test_dedicated_rate_limit_uses_an_hmac_key_without_raw_ip_or_personal_data(): void
     {
         config()->set('leadops.local_webhook.rate_limit_per_minute', 2);
@@ -213,8 +310,17 @@ class LocalWebhookTest extends TestCase
 
         $envelope = $this->validEnvelope();
         $envelope['lead']['external_reference'] = 'webhook-rate-3';
-        $this->postJson('/api/local/webhooks/leads', $envelope)->assertTooManyRequests();
+        $this->postJson('/api/local/webhooks/leads', $envelope)
+            ->assertTooManyRequests()
+            ->assertExactJson(['result' => 'rate_limited']);
         $this->assertDatabaseCount('leads', 2);
+    }
+
+    public function test_rate_limit_configuration_has_a_safe_default_and_bounds(): void
+    {
+        $this->assertSame(30, config('leadops.local_webhook.rate_limit_per_minute'));
+        $this->assertSame(1, $this->cachedRateLimitFor('-50'));
+        $this->assertSame(600, $this->cachedRateLimitFor('5000'));
     }
 
     public function test_route_has_no_session_or_csrf_dependency(): void
@@ -224,6 +330,9 @@ class LocalWebhookTest extends TestCase
 
         $this->assertNotNull($route);
         $this->assertSame(['api', 'throttle:local-webhook'], $route->gatherMiddleware());
+        $expandedMiddleware = app('router')->gatherRouteMiddleware($route);
+        $this->assertNotContains(StartSession::class, $expandedMiddleware);
+        $this->assertNotContains(PreventRequestForgery::class, $expandedMiddleware);
 
         $response = $this->postJson('/api/local/webhooks/leads', $this->validEnvelope());
 
@@ -237,6 +346,14 @@ class LocalWebhookTest extends TestCase
         $this->assertContains('local.webhooks.leads.store', $this->routeNamesForEnvironment('local'));
         $this->assertNotContains('local.webhooks.leads.store', $this->routeNamesForEnvironment('production'));
         $this->assertNotContains('local.webhooks.leads.store', $this->routeNamesForEnvironment('staging'));
+    }
+
+    public function test_cached_route_tables_include_the_webhook_only_for_allowed_environments(): void
+    {
+        $this->assertContains('local.webhooks.leads.store', $this->cachedRouteNamesForEnvironment('local'));
+        $this->assertContains('local.webhooks.leads.store', $this->cachedRouteNamesForEnvironment('testing'));
+        $this->assertNotContains('local.webhooks.leads.store', $this->cachedRouteNamesForEnvironment('production'));
+        $this->assertNotContains('local.webhooks.leads.store', $this->cachedRouteNamesForEnvironment('staging'));
     }
 
     /** @return array<string, mixed> */
@@ -282,5 +399,52 @@ class LocalWebhookTest extends TestCase
         $process->mustRun();
 
         return array_column(json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR), 'name');
+    }
+
+    /** @return list<string|null> */
+    private function cachedRouteNamesForEnvironment(string $environment): array
+    {
+        $suffix = $environment.'-'.bin2hex(random_bytes(4));
+        $configCache = "bootstrap/cache/config-{$suffix}.php";
+        $routesCache = "bootstrap/cache/routes-{$suffix}.php";
+        $processEnvironment = [
+            'APP_ENV' => $environment,
+            'APP_CONFIG_CACHE' => $configCache,
+            'APP_ROUTES_CACHE' => $routesCache,
+        ];
+
+        try {
+            foreach ([['config:cache'], ['route:cache']] as $command) {
+                $process = new Process([PHP_BINARY, 'artisan', ...$command], base_path(), $processEnvironment);
+                $process->mustRun();
+            }
+
+            $process = new Process([PHP_BINARY, 'artisan', 'route:list', '--json'], base_path(), $processEnvironment);
+            $process->mustRun();
+
+            return array_column(json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR), 'name');
+        } finally {
+            @unlink(base_path($configCache));
+            @unlink(base_path($routesCache));
+        }
+    }
+
+    private function cachedRateLimitFor(string $configuredValue): int
+    {
+        $configCache = 'bootstrap/cache/config-rate-'.bin2hex(random_bytes(4)).'.php';
+        $process = new Process([PHP_BINARY, 'artisan', 'config:cache'], base_path(), [
+            'APP_ENV' => 'testing',
+            'APP_CONFIG_CACHE' => $configCache,
+            'LEADOPS_LOCAL_WEBHOOK_RATE_LIMIT' => $configuredValue,
+        ]);
+
+        try {
+            $process->mustRun();
+            $configuration = require base_path($configCache);
+
+            return $configuration['leadops']['local_webhook']['rate_limit_per_minute'];
+        } finally {
+            @unlink(base_path($configCache));
+        }
     }
 }
