@@ -24,13 +24,17 @@
         @endif
 
         <div class="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
-            <form method="POST" action="{{ route('imports.csv.store') }}" enctype="multipart/form-data" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+            <form method="POST" action="{{ route('imports.csv.store') }}" enctype="multipart/form-data" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
                 @csrf
                 <label for="csv_file" class="block text-base font-bold text-slate-950">Fichier CSV</label>
                 <p id="csv-file-help" class="mt-1 text-sm leading-6 text-slate-600">UTF-8, virgule, 2 Mio maximum et 500 lignes de données maximum.</p>
                 <input id="csv_file" name="csv_file" type="file" accept=".csv,text/csv" required aria-describedby="csv-file-help{{ $errors->has('csv_file') ? ' csv-file-errors' : '' }}"
                     @if ($errors->has('csv_file')) aria-invalid="true" @endif
                     class="mt-4 block w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-800 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-100 file:px-3 file:py-2 file:font-bold file:text-blue-900 hover:file:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-600">
+                <p class="mt-4 text-sm leading-6 text-slate-600">
+                    La prévisualisation éventuelle reste informative : Laravel est l’unique autorité de validation lors de l’import.
+                </p>
+                <div data-csv-import-preview data-input-id="csv_file" class="mt-5"></div>
                 <button type="submit" class="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 sm:w-auto">
                     Lancer l’import
                 </button>
