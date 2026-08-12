@@ -33,6 +33,7 @@ final class LeadIngestionService
             'company_size',
             'message',
             'consent',
+            'received_at',
         ]);
 
         return DB::transaction(function () use ($source, $externalReference, $receivedAttributes): LeadIngestionResult {
@@ -45,7 +46,7 @@ final class LeadIngestionService
                     ...$receivedAttributes,
                     'status' => LeadStatus::Received->value,
                     'processing_attempts' => 0,
-                    'received_at' => now(),
+                    'received_at' => $receivedAttributes['received_at'] ?? now(),
                 ],
             );
 

@@ -33,5 +33,19 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(5)->by('lead-form:'.$clientKey);
         });
+
+        RateLimiter::for('local-webhook', function (Request $request): Limit {
+            $clientKey = hash_hmac(
+                'sha256',
+                (string) $request->ip(),
+                (string) config('app.key'),
+            );
+
+            return Limit::perMinute((int) config('leadops.local_webhook.rate_limit_per_minute'))
+                ->by('local-webhook:'.$clientKey)
+                ->response(static fn (Request $request, array $headers) => response()->json([
+                    'result' => 'rate_limited',
+                ], 429, $headers));
+        });
     }
 }
