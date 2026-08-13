@@ -7,184 +7,361 @@ use App\Domain\LeadProcessing\Enums\LeadSource;
 use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Domain\LeadProcessing\Enums\ProcessingEventType;
 use App\Domain\LeadProcessing\Enums\ServiceInterest;
-use App\Models\Lead;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 class LeadDemoSeeder extends Seeder
 {
-    private const RECEIVED_AT = '2026-01-15 09:00:00';
+    private DateTimeZone $utc;
 
     public function run(): void
     {
+        $this->utc = new DateTimeZone('UTC');
+
         DB::transaction(function (): void {
-            $this->upsertLead('demo-hot-001', [
+            $ids = [];
+
+            foreach ($this->leads() as $reference => $attributes) {
+                $ids[$reference] = $this->upsertLead($reference, $attributes);
+            }
+
+            DB::table('leads')->where('id', $ids['demo-duplicate-001'])->update([
+                'duplicate_of' => $ids['demo-hot-001'],
+            ]);
+
+            foreach ($this->timelines($ids) as $reference => $events) {
+                $this->syncTimeline($ids[$reference], $events);
+            }
+        });
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function leads(): array
+    {
+        $longMessage = 'Demande entièrement fictive pour illustrer un parcours LeadOps déterministe, explicable et sans aucune donnée client réelle.';
+
+        return [
+            'demo-hot-001' => [
+                'source' => LeadSource::Form->value,
                 'first_name' => 'Aline-Fictive',
-                'company' => 'Atelier Fictif',
+                'last_name' => 'Démo',
+                'company' => 'Atelier Fictif Démo',
                 'email' => 'aline-fictive@example.test',
-                'phone' => '+12025550100',
+                'phone' => '+1 202-555-0100',
+                'country' => 'US',
+                'service_interest' => ServiceInterest::Automation->value,
+                'company_size' => 24,
+                'message' => $longMessage,
                 'normalized_email' => 'aline-fictive@example.test',
                 'normalized_phone' => '+12025550100',
-                'score' => 85,
+                'score' => 90,
                 'classification' => LeadClassification::Hot->value,
                 'assigned_to' => 'Sarah',
                 'status' => LeadStatus::Routed->value,
                 'processing_attempts' => 1,
-                'processed_at' => '2026-01-15 09:05:00',
-            ]);
-
-            $this->upsertLead('demo-warm-001', [
-                'first_name' => 'Benoit-Fictif',
-                'company' => 'Bureau Imaginaire',
+                'received_at' => '2026-01-15 09:00:00',
+                'processed_at' => '2026-01-15 09:00:10',
+            ],
+            'demo-warm-001' => [
+                'source' => LeadSource::Csv->value,
+                'first_name' => 'Benoît-Fictif',
+                'last_name' => 'Démo',
+                'company' => 'Bureau Imaginaire Démo',
                 'email' => 'benoit-fictif@example.test',
-                'phone' => '+12025550101',
+                'phone' => '+1 202-555-0101',
+                'country' => null,
+                'service_interest' => ServiceInterest::Dashboard->value,
+                'company_size' => 12,
+                'message' => 'Demande fictive de tableau de bord pour la démonstration locale.',
                 'normalized_email' => 'benoit-fictif@example.test',
                 'normalized_phone' => '+12025550101',
-                'service_interest' => ServiceInterest::Dashboard->value,
-                'score' => 65,
+                'score' => 70,
                 'classification' => LeadClassification::Warm->value,
                 'assigned_to' => 'Yassine',
                 'status' => LeadStatus::Routed->value,
                 'processing_attempts' => 1,
-                'processed_at' => '2026-01-15 09:06:00',
-            ]);
-
-            $this->upsertLead('demo-low-001', [
+                'received_at' => '2026-01-15 09:10:00',
+                'processed_at' => '2026-01-15 09:10:10',
+            ],
+            'demo-low-001' => [
+                'source' => LeadSource::Webhook->value,
                 'first_name' => 'Camille-Fictive',
+                'last_name' => 'Démo',
                 'company' => null,
                 'email' => 'camille-fictive@example.test',
-                'phone' => '+12025550102',
+                'phone' => null,
                 'country' => null,
                 'service_interest' => ServiceInterest::Other->value,
                 'company_size' => null,
+                'message' => 'Demande fictive courte.',
                 'normalized_email' => 'camille-fictive@example.test',
-                'normalized_phone' => '+12025550102',
-                'score' => 35,
+                'normalized_phone' => null,
+                'score' => 40,
                 'classification' => LeadClassification::Low->value,
                 'assigned_to' => 'Emma',
                 'status' => LeadStatus::Routed->value,
                 'processing_attempts' => 1,
-                'processed_at' => '2026-01-15 09:07:00',
-            ]);
-
-            $this->upsertLead('demo-invalid-001', [
+                'received_at' => '2026-01-15 09:20:00',
+                'processed_at' => '2026-01-15 09:20:10',
+            ],
+            'demo-invalid-001' => [
+                'source' => LeadSource::Form->value,
                 'first_name' => 'Dorian-Fictif',
-                'company' => 'Structure Fictive',
+                'last_name' => 'Démo',
+                'company' => 'Structure Fictive Démo',
                 'email' => 'adresse-invalide',
                 'phone' => null,
+                'country' => 'FR',
+                'service_interest' => ServiceInterest::Api->value,
+                'company_size' => 8,
+                'message' => 'Exemple fictif avec une adresse e-mail invalide.',
                 'normalized_email' => null,
                 'normalized_phone' => null,
                 'status' => LeadStatus::Invalid->value,
-            ]);
-
-            $hot = $this->findLead('demo-hot-001');
-            $warm = $this->findLead('demo-warm-001');
-
-            $this->upsertLead('demo-duplicate-001', [
-                'first_name' => 'Elise-Fictive',
-                'company' => 'Doublon Fictif',
-                'email' => $hot->email,
-                'phone' => $hot->phone,
-                'normalized_email' => $hot->normalized_email,
-                'normalized_phone' => $hot->normalized_phone,
+                'processing_attempts' => 1,
+                'received_at' => '2026-01-15 09:30:00',
+            ],
+            'demo-invalid-phone-001' => [
+                'source' => LeadSource::Csv->value,
+                'first_name' => 'Élodie-Fictive',
+                'last_name' => 'Démo',
+                'company' => 'Téléphone Fictif Démo',
+                'email' => null,
+                'phone' => '+1 202-555-0199 poste fictif',
+                'country' => 'US',
+                'service_interest' => ServiceInterest::BusinessApplication->value,
+                'company_size' => 16,
+                'message' => 'Exemple fictif avec un format de téléphone volontairement invalide.',
+                'normalized_email' => null,
+                'normalized_phone' => null,
+                'status' => LeadStatus::Invalid->value,
+                'processing_attempts' => 1,
+                'received_at' => '2026-01-15 09:40:00',
+            ],
+            'demo-duplicate-001' => [
+                'source' => LeadSource::Webhook->value,
+                'first_name' => 'Farah-Fictive',
+                'last_name' => 'Démo',
+                'company' => 'Doublon Fictif Démo',
+                'email' => 'aline-fictive@example.test',
+                'phone' => '+1 202-555-0100',
+                'country' => 'US',
+                'service_interest' => ServiceInterest::Automation->value,
+                'company_size' => 24,
+                'message' => 'Exemple fictif relié à une origine antérieure.',
+                'normalized_email' => 'aline-fictive@example.test',
+                'normalized_phone' => '+12025550100',
                 'status' => LeadStatus::Duplicate->value,
-                'duplicate_of' => $hot->getKey(),
-            ]);
-
-            $this->upsertLead('demo-review-001', [
-                'first_name' => 'Farid-Fictif',
-                'company' => 'Revue Fictive',
-                'email' => $hot->email,
-                'phone' => $warm->phone,
-                'normalized_email' => $hot->normalized_email,
-                'normalized_phone' => $warm->normalized_phone,
+                'processing_attempts' => 1,
+                'received_at' => '2026-01-15 09:50:00',
+            ],
+            'demo-review-001' => [
+                'source' => LeadSource::Form->value,
+                'first_name' => 'Gaël-Fictif',
+                'last_name' => 'Démo',
+                'company' => 'Revue Fictive Démo',
+                'email' => 'aline-fictive@example.test',
+                'phone' => '+1 202-555-0101',
+                'country' => 'FR',
                 'service_interest' => ServiceInterest::Api->value,
+                'company_size' => 18,
+                'message' => 'Exemple fictif ambigu, prévu pour une correction manuelle locale.',
+                'normalized_email' => 'aline-fictive@example.test',
+                'normalized_phone' => '+12025550101',
                 'status' => LeadStatus::NeedsReview->value,
-            ]);
-
-            $this->upsertLead('demo-failed-001', [
-                'first_name' => 'Gaelle-Fictive',
-                'company' => 'Incident Fictif',
-                'email' => 'gaelle-fictive@example.test',
-                'phone' => '+12025550106',
-                'normalized_email' => 'gaelle-fictive@example.test',
+                'processing_attempts' => 1,
+                'received_at' => '2026-01-15 10:00:00',
+            ],
+            'demo-failed-001' => [
+                'source' => LeadSource::Webhook->value,
+                'first_name' => 'Hana-Fictive',
+                'last_name' => 'Démo',
+                'company' => 'Incident Fictif Démo',
+                'email' => 'hana-fictive@example.test',
+                'phone' => '+1 202-555-0106',
+                'country' => 'US',
+                'service_interest' => ServiceInterest::Api->value,
+                'company_size' => 20,
+                'message' => $longMessage,
+                'normalized_email' => 'hana-fictive@example.test',
                 'normalized_phone' => '+12025550106',
+                'score' => 90,
+                'classification' => LeadClassification::Hot->value,
+                'assigned_to' => 'Sarah',
                 'status' => LeadStatus::Failed->value,
                 'processing_attempts' => 3,
-            ]);
-
-            $this->upsertHotLeadTimeline($hot);
-        });
-    }
-
-    /** @param array<string, mixed> $overrides */
-    private function upsertLead(string $externalReference, array $overrides): void
-    {
-        DB::table('leads')->updateOrInsert(
-            [
-                'source' => LeadSource::Form->value,
-                'external_reference' => $externalReference,
+                'received_at' => '2026-01-15 10:10:00',
             ],
-            array_merge([
-                'first_name' => 'Prenom-Fictif',
-                'last_name' => 'Demo',
-                'company' => 'Entreprise Fictive',
-                'email' => "{$externalReference}@example.test",
-                'phone' => '+12025550199',
-                'country' => 'FR',
-                'service_interest' => ServiceInterest::Automation->value,
-                'company_size' => 12,
-                'message' => 'Message entièrement fictif destiné à la démonstration locale LeadOps.',
-                'consent' => true,
-                'received_at' => self::RECEIVED_AT,
-                'normalized_email' => "{$externalReference}@example.test",
-                'normalized_phone' => '+12025550199',
-                'score' => null,
-                'classification' => null,
-                'assigned_to' => null,
-                'status' => LeadStatus::Received->value,
-                'duplicate_of' => null,
-                'processing_attempts' => 0,
-                'processed_at' => null,
-                'created_at' => self::RECEIVED_AT,
-                'updated_at' => self::RECEIVED_AT,
-            ], $overrides),
-        );
+        ];
     }
 
-    private function findLead(string $externalReference): Lead
+    /** @param array<string, int> $ids
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function timelines(array $ids): array
     {
-        return Lead::query()
-            ->where('source', LeadSource::Form->value)
-            ->where('external_reference', $externalReference)
-            ->sole();
-    }
+        $routed = function (string $reference, int $score, LeadClassification $classification, string $service, string $assignee) use ($ids): array {
+            $ruleCodes = match ($reference) {
+                'demo-warm-001' => [
+                    'base:+20', 'company_size_present:+10', 'company_size_at_least_five:+10',
+                    'valid_email:+10', 'valid_phone:+10', 'recognized_service:+20',
+                    'missing_company_or_country:-10',
+                ],
+                'demo-low-001' => [
+                    'base:+20', 'valid_email:+10', 'recognized_service:+20',
+                    'missing_company_or_country:-10',
+                ],
+                default => [
+                    'base:+20', 'company_size_present:+10', 'company_size_at_least_five:+10',
+                    'valid_email:+10', 'valid_phone:+10', 'recognized_service:+20', 'long_message:+10',
+                ],
+            };
 
-    private function upsertHotLeadTimeline(Lead $lead): void
-    {
-        $events = [
-            [ProcessingEventType::LeadReceived, null, LeadStatus::Received],
-            [ProcessingEventType::LeadNormalized, LeadStatus::Received, LeadStatus::Validating],
-            [ProcessingEventType::ScoreCalculated, LeadStatus::Validating, LeadStatus::Qualified],
-            [ProcessingEventType::LeadClassified, LeadStatus::Validating, LeadStatus::Qualified],
-            [ProcessingEventType::TransmissionSucceeded, LeadStatus::Qualified, LeadStatus::Routed],
-            [ProcessingEventType::LeadRouted, LeadStatus::Qualified, LeadStatus::Routed],
+            return [
+                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint($reference)]),
+                $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
+                $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::DuplicateChecked, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::ScoreCalculated, LeadStatus::Validating, null, 1, ['score' => $score, 'rule_codes' => $ruleCodes]),
+                $this->event(ProcessingEventType::LeadClassified, LeadStatus::Validating, null, 1, ['classification' => $classification->value]),
+                $this->event(ProcessingEventType::LeadRoutingDecided, LeadStatus::Validating, null, 1, ['service' => $service, 'assigned_to' => $assignee]),
+                $this->event(ProcessingEventType::LeadQualified, LeadStatus::Validating, LeadStatus::Qualified, 1),
+                $this->event(ProcessingEventType::TransmissionSucceeded, LeadStatus::Qualified, null, 1, ['reference_fingerprint' => $this->fingerprint($reference.'-transmission'), 'idempotency_key' => "lead:{$ids[$reference]}:cycle:initial:transmission"]),
+                $this->event(ProcessingEventType::LeadRouted, LeadStatus::Qualified, LeadStatus::Routed, 1, ['assigned_to' => $assignee]),
+            ];
+        };
+
+        $invalid = fn (string $reference): array => [
+            $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint($reference)]),
+            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
+            $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
+            $this->event(ProcessingEventType::ValidationFailed, LeadStatus::Validating, LeadStatus::Invalid, 1, ['reason_codes' => ['contact.invalid']]),
         ];
 
-        foreach ($events as $position => [$type, $fromStatus, $toStatus]) {
-            DB::table('processing_events')->updateOrInsert(
-                ['lead_id' => $lead->getKey(), 'type' => $type->value],
-                [
-                    'from_status' => $fromStatus?->value,
-                    'to_status' => $toStatus->value,
-                    'attempt' => 1,
-                    'context' => json_encode(
-                        ['scenario' => 'demo', 'step' => $position + 1],
-                        JSON_THROW_ON_ERROR,
-                    ),
-                    'created_at' => sprintf('2026-01-15 09:00:%02d', $position),
-                ],
-            );
+        $failed = $routed('demo-failed-001', 90, LeadClassification::Hot, ServiceInterest::Api->value, 'Sarah');
+        array_splice($failed, -2);
+        $failed = [
+            ...$failed,
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed']),
+            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed', 'retry_delay' => 1]),
+            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 2),
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed']),
+            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed', 'retry_delay' => 5]),
+            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 3),
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 3, ['error_code' => 'transmission_failed']),
+            $this->event(ProcessingEventType::ProcessingFailed, LeadStatus::Qualified, LeadStatus::Failed, 3, ['error_code' => 'attempts_exhausted']),
+        ];
+
+        return [
+            'demo-hot-001' => $routed('demo-hot-001', 90, LeadClassification::Hot, ServiceInterest::Automation->value, 'Sarah'),
+            'demo-warm-001' => $routed('demo-warm-001', 70, LeadClassification::Warm, ServiceInterest::Dashboard->value, 'Yassine'),
+            'demo-low-001' => $routed('demo-low-001', 40, LeadClassification::Low, ServiceInterest::Other->value, 'Emma'),
+            'demo-invalid-001' => $invalid('demo-invalid-001'),
+            'demo-invalid-phone-001' => $invalid('demo-invalid-phone-001'),
+            'demo-duplicate-001' => [
+                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint('demo-duplicate-001')]),
+                $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
+                $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::DuplicateDetected, LeadStatus::Validating, LeadStatus::Duplicate, 1, ['candidate_ids' => [$ids['demo-hot-001']]]),
+            ],
+            'demo-review-001' => [
+                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint('demo-review-001')]),
+                $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
+                $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
+                $this->event(ProcessingEventType::ReviewRequested, LeadStatus::Validating, LeadStatus::NeedsReview, 1, ['reason_codes' => ['duplicate.ambiguous'], 'candidate_ids' => [$ids['demo-hot-001'], $ids['demo-warm-001']]]),
+            ],
+            'demo-failed-001' => $failed,
+        ];
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function upsertLead(string $reference, array $attributes): int
+    {
+        $existingId = DB::table('leads')->where('external_reference', $reference)->value('id');
+        $timestamp = $attributes['received_at'];
+        $values = [
+            ...$attributes,
+            'external_reference' => $reference,
+            'consent' => true,
+            'duplicate_of' => null,
+            'score' => $attributes['score'] ?? null,
+            'classification' => $attributes['classification'] ?? null,
+            'assigned_to' => $attributes['assigned_to'] ?? null,
+            'processed_at' => $attributes['processed_at'] ?? null,
+            'created_at' => $timestamp,
+            'updated_at' => $timestamp,
+        ];
+
+        if ($existingId !== null) {
+            DB::table('leads')->where('id', $existingId)->update($values);
+
+            return (int) $existingId;
         }
+
+        return (int) DB::table('leads')->insertGetId($values);
+    }
+
+    /** @param list<array<string, mixed>> $events */
+    private function syncTimeline(int $leadId, array $events): void
+    {
+        $existingIds = DB::table('processing_events')
+            ->where('lead_id', $leadId)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+        $base = new DateTimeImmutable(
+            (string) DB::table('leads')->where('id', $leadId)->value('received_at'),
+            $this->utc,
+        );
+
+        foreach ($events as $position => $event) {
+            $values = [
+                ...$event,
+                'lead_id' => $leadId,
+                'context' => json_encode($event['context'], JSON_THROW_ON_ERROR),
+                'created_at' => $base->modify(sprintf('+%d seconds', $position))->format('Y-m-d H:i:s'),
+            ];
+
+            if (isset($existingIds[$position])) {
+                DB::table('processing_events')->where('id', $existingIds[$position])->update($values);
+            } else {
+                DB::table('processing_events')->insert($values);
+            }
+        }
+
+        $obsoleteIds = array_slice($existingIds, count($events));
+        if ($obsoleteIds !== []) {
+            DB::table('processing_events')->whereIn('id', $obsoleteIds)->delete();
+        }
+    }
+
+    /** @param array<string, mixed> $context
+     * @return array<string, mixed>
+     */
+    private function event(
+        ProcessingEventType $type,
+        ?LeadStatus $fromStatus,
+        ?LeadStatus $toStatus,
+        ?int $attempt,
+        array $context = [],
+    ): array {
+        return [
+            'type' => $type->value,
+            'from_status' => $fromStatus?->value,
+            'to_status' => $toStatus?->value,
+            'attempt' => $attempt,
+            'context' => $context,
+        ];
+    }
+
+    private function fingerprint(string $value): string
+    {
+        return substr(hash('sha256', $value), 0, 16);
     }
 }
