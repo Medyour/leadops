@@ -11,7 +11,7 @@ class WebhookSimulatorController extends Controller
         abort_unless(app()->environment(['local', 'testing']), 404);
 
         return view('tools.webhook', [
-            'webhookUrl' => route('local.webhooks.leads.store'),
+            'webhookUrl' => route('local.webhooks.leads.store', absolute: false),
         ]);
     }
 }

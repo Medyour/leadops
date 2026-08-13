@@ -1,9 +1,9 @@
 <script setup>
 import { nextTick, onBeforeUnmount, ref } from 'vue';
 import {
+    createWebhookRequestCoordinator,
     formatExampleJson,
     normalizeRequestError,
-    startWebhookRequest,
     validateWebhookJson,
 } from '../webhook-simulator.js';
 
@@ -16,8 +16,6 @@ const props = defineProps({
 
 const requestTimeoutMilliseconds = 10000;
 let exampleSequence = 0;
-let currentRequest = null;
-let disposed = false;
 
 const initialJson = createExampleJson();
 const editor = ref(initialJson);
@@ -26,6 +24,18 @@ const sending = ref(false);
 const result = ref(null);
 const editorElement = ref(null);
 const resultElement = ref(null);
+const requestCoordinator = createWebhookRequestCoordinator({
+    endpoint: props.endpoint,
+    origin: globalThis.location.origin,
+    timeoutMilliseconds: requestTimeoutMilliseconds,
+    onSendingChange(value) {
+        sending.value = value;
+    },
+    onResult(normalized) {
+        result.value = normalized;
+        focusResult();
+    },
+});
 
 function createExampleJson() {
     exampleSequence += 1;
@@ -40,22 +50,16 @@ function createExampleJson() {
 }
 
 function loadNewExample() {
-    if (sending.value) {
-        return;
-    }
-
+    const cancelled = requestCoordinator.cancel();
     editor.value = createExampleJson();
-    clearFeedback();
+    clearFeedback(cancelled);
     focusEditor();
 }
 
 function resetEditor() {
-    if (sending.value) {
-        return;
-    }
-
+    const cancelled = requestCoordinator.cancel();
     editor.value = initialJson;
-    clearFeedback();
+    clearFeedback(cancelled);
     focusEditor();
 }
 
@@ -73,45 +77,12 @@ async function send() {
         return;
     }
 
-    sending.value = true;
-    let requestState;
-
-    try {
-        requestState = startWebhookRequest({
-            endpoint: props.endpoint,
-            rawJson: editor.value,
-            origin: globalThis.location.origin,
-            timeoutMilliseconds: requestTimeoutMilliseconds,
-        });
-    } catch (error) {
-        result.value = normalizeRequestError(error);
-        sending.value = false;
-        await nextTick();
-        resultElement.value?.focus();
-        return;
-    }
-
-    currentRequest = requestState;
-
-    try {
-        const normalized = await requestState.promise;
-
-        if (!disposed && currentRequest === requestState) {
-            result.value = normalized;
-        }
-    } finally {
-        if (!disposed && currentRequest === requestState) {
-            sending.value = false;
-            currentRequest = null;
-            await nextTick();
-            resultElement.value?.focus();
-        }
-    }
+    requestCoordinator.send(editor.value);
 }
 
-function clearFeedback() {
+function clearFeedback(cancelled = false) {
     editorErrors.value = [];
-    result.value = null;
+    result.value = cancelled ? normalizeRequestError(null, 'cancelled') : null;
 }
 
 async function focusEditor() {
@@ -119,18 +90,19 @@ async function focusEditor() {
     editorElement.value?.focus();
 }
 
-onBeforeUnmount(() => {
-    disposed = true;
+async function focusResult() {
+    await nextTick();
+    resultElement.value?.focus();
+}
 
-    if (currentRequest) {
-        currentRequest.cancel();
-    }
+onBeforeUnmount(() => {
+    requestCoordinator.dispose();
 });
 </script>
 
 <template>
     <div class="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
-        <section aria-labelledby="webhook-editor-title" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-8">
+        <section aria-labelledby="webhook-editor-title" :aria-busy="sending" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-8">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <h2 id="webhook-editor-title" class="text-xl font-black text-slate-950">Payload JSON fictif</h2>
@@ -169,10 +141,10 @@ onBeforeUnmount(() => {
             <span v-else id="webhook-editor-errors" class="sr-only">Aucune erreur locale détectée.</span>
 
             <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <button type="button" :disabled="sending" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" @click="loadNewExample">
+                <button type="button" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2" @click="loadNewExample">
                     Nouvel exemple fictif
                 </button>
-                <button type="button" :disabled="sending" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" @click="resetEditor">
+                <button type="button" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2" @click="resetEditor">
                     Réinitialiser
                 </button>
                 <button type="button" :disabled="sending" class="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:cursor-wait disabled:bg-blue-400 sm:ml-auto" @click="send">
@@ -203,6 +175,7 @@ onBeforeUnmount(() => {
                 aria-labelledby="webhook-result-title"
                 aria-live="polite"
                 aria-atomic="true"
+                :aria-busy="sending"
                 class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm outline-none focus:ring-2 focus:ring-blue-600 sm:p-6"
             >
                 <h2 id="webhook-result-title" class="text-lg font-black text-slate-950">Résultat assaini</h2>

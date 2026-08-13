@@ -1,5 +1,7 @@
 const WEBHOOK_PATH = '/api/local/webhooks/leads';
 
+export const WEBHOOK_RESPONSE_MAX_BYTES = 32 * 1024;
+
 const allowedLeadFields = [
     'source',
     'external_reference',
@@ -114,11 +116,20 @@ export function validateWebhookJson(rawJson) {
 }
 
 export function prepareWebhookRequest(endpoint, rawJson, origin, signal) {
-    const target = new URL(endpoint, origin);
-    const expectedOrigin = new URL(origin).origin;
+    let currentOrigin;
+
+    try {
+        currentOrigin = new URL(origin);
+    } catch {
+        throw new TypeError('Destination webhook refusée.');
+    }
+
+    const target = new URL(endpoint, currentOrigin);
 
     if (
-        target.origin !== expectedOrigin
+        endpoint !== WEBHOOK_PATH
+        || currentOrigin.origin !== origin
+        || target.origin !== currentOrigin.origin
         || target.pathname !== WEBHOOK_PATH
         || target.search !== ''
         || target.hash !== ''
@@ -130,7 +141,8 @@ export function prepareWebhookRequest(endpoint, rawJson, origin, signal) {
     }
 
     return {
-        url: target.href,
+        url: WEBHOOK_PATH,
+        expectedUrl: target.href,
         options: {
             method: 'POST',
             headers: {
@@ -148,17 +160,28 @@ export function prepareWebhookRequest(endpoint, rawJson, origin, signal) {
     };
 }
 
-export async function performWebhookRequest(request, fetchImplementation = globalThis.fetch) {
+export async function performWebhookRequest(
+    request,
+    fetchImplementation = globalThis.fetch,
+    maxResponseBytes = WEBHOOK_RESPONSE_MAX_BYTES,
+) {
     const response = await fetchImplementation(request.url, request.options);
-    let body = null;
 
-    try {
-        body = await response.json();
-    } catch {
-        // A non-JSON response is intentionally reduced to its HTTP status.
+    if (response.redirected === true || (response.url && response.url !== request.expectedUrl)) {
+        return technicalResult(response.status);
     }
 
-    return normalizeWebhookResponse(response.status, body);
+    if (response.status === 404) {
+        return normalizeWebhookResponse(404, null);
+    }
+
+    const parsed = await readBoundedJsonResponse(response, maxResponseBytes);
+
+    if (!parsed.valid) {
+        return technicalResult(response.status);
+    }
+
+    return normalizeWebhookResponse(response.status, parsed.value);
 }
 
 export function startWebhookRequest({
@@ -172,38 +195,137 @@ export function startWebhookRequest({
 }) {
     const controller = new AbortController();
     let reason = 'network';
+    let timerActive = true;
+
+    const clearTimer = () => {
+        if (timerActive) {
+            timerActive = false;
+            clearTimeoutImplementation(timer);
+        }
+    };
+
     const request = prepareWebhookRequest(endpoint, rawJson, origin, controller.signal);
     const timer = setTimeoutImplementation(() => {
+        timerActive = false;
         reason = 'timeout';
         controller.abort();
     }, timeoutMilliseconds);
 
     const promise = performWebhookRequest(request, fetchImplementation)
         .catch((error) => normalizeRequestError(error, reason))
-        .finally(() => clearTimeoutImplementation(timer));
+        .finally(clearTimer);
 
     return {
         promise,
         cancel() {
-            reason = 'cancelled';
+            if (reason === 'network') {
+                reason = 'cancelled';
+            }
+
+            clearTimer();
             controller.abort();
         },
     };
 }
 
+export function createWebhookRequestCoordinator({
+    endpoint,
+    origin,
+    timeoutMilliseconds = 10000,
+    startRequestImplementation = startWebhookRequest,
+    onSendingChange = () => {},
+    onResult = () => {},
+}) {
+    let activeRequest = null;
+    let disposed = false;
+    let sending = false;
+
+    const setSending = (value) => {
+        sending = value;
+        onSendingChange(value);
+    };
+
+    return {
+        get sending() {
+            return sending;
+        },
+        send(rawJson) {
+            if (disposed || sending) {
+                return false;
+            }
+
+            setSending(true);
+            let request;
+
+            try {
+                request = startRequestImplementation({
+                    endpoint,
+                    rawJson,
+                    origin,
+                    timeoutMilliseconds,
+                });
+            } catch (error) {
+                setSending(false);
+                onResult(normalizeRequestError(error));
+
+                return true;
+            }
+
+            activeRequest = request;
+            request.promise.then(
+                (normalized) => finishRequest(request, normalized),
+                (error) => finishRequest(request, normalizeRequestError(error)),
+            );
+
+            return true;
+        },
+        cancel() {
+            if (!activeRequest) {
+                return false;
+            }
+
+            const request = activeRequest;
+            activeRequest = null;
+            setSending(false);
+            request.cancel();
+
+            return true;
+        },
+        dispose() {
+            disposed = true;
+
+            if (activeRequest) {
+                const request = activeRequest;
+                activeRequest = null;
+                sending = false;
+                request.cancel();
+            }
+        },
+    };
+
+    function finishRequest(request, normalized) {
+        if (disposed || activeRequest !== request) {
+            return;
+        }
+
+        activeRequest = null;
+        setSending(false);
+        onResult(normalized);
+    }
+}
+
 export function normalizeWebhookResponse(status, body) {
-    if (status === 201 && body?.result === 'created') {
-        return successResult('created', status, body.lead);
+    if (status === 201 && hasExactKeys(body, ['result', 'lead']) && body.result === 'created') {
+        return normalizeSuccess('created', status, body.lead);
     }
 
-    if (status === 200 && body?.result === 'already_received') {
-        return successResult('already_received', status, body.lead);
+    if (status === 200 && hasExactKeys(body, ['result', 'lead']) && body.result === 'already_received') {
+        return normalizeSuccess('already_received', status, body.lead);
     }
 
-    if (status === 422 && body?.result === 'invalid') {
-        const fields = Array.isArray(body.errors)
-            ? [...new Set(body.errors.filter((field) => typeof field === 'string' && displayedValidationPaths.has(field)))].sort()
-            : [];
+    if (status === 422 && hasExactKeys(body, ['result', 'errors']) && body.result === 'invalid'
+        && Array.isArray(body.errors) && body.errors.every((field) => typeof field === 'string')) {
+        const fields = [...new Set(body.errors.filter((field) => displayedValidationPaths.has(field)))].sort();
 
         return {
             kind: 'invalid',
@@ -214,7 +336,7 @@ export function normalizeWebhookResponse(status, body) {
         };
     }
 
-    if (status === 429) {
+    if (status === 429 && hasExactKeys(body, ['result']) && body.result === 'rate_limited') {
         return {
             kind: 'rate_limited',
             statusCode: 429,
@@ -232,7 +354,7 @@ export function normalizeWebhookResponse(status, body) {
         };
     }
 
-    if (status >= 400 && body?.result === 'unavailable') {
+    if (status >= 400 && hasExactKeys(body, ['result']) && body.result === 'unavailable') {
         return {
             kind: 'unavailable',
             statusCode: status,
@@ -244,7 +366,7 @@ export function normalizeWebhookResponse(status, body) {
     return technicalResult(status);
 }
 
-export function normalizeRequestError(error, reason = 'network') {
+export function normalizeRequestError(_error, reason = 'network') {
     if (reason === 'timeout') {
         return {
             kind: 'timeout',
@@ -253,7 +375,7 @@ export function normalizeRequestError(error, reason = 'network') {
         };
     }
 
-    if (reason === 'cancelled' || error?.name === 'AbortError') {
+    if (reason === 'cancelled') {
         return {
             kind: 'cancelled',
             title: 'Envoi annulé',
@@ -264,69 +386,106 @@ export function normalizeRequestError(error, reason = 'network') {
     return technicalResult();
 }
 
+async function readBoundedJsonResponse(response, maxBytes) {
+    const contentType = response.headers?.get?.('content-type');
+
+    if (typeof contentType !== 'string' || !/^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/iu.test(contentType)) {
+        return { valid: false, value: null };
+    }
+
+    const contentLength = response.headers?.get?.('content-length');
+
+    if (contentLength !== null && contentLength !== undefined) {
+        if (!/^\d+$/u.test(contentLength) || Number(contentLength) > maxBytes) {
+            return { valid: false, value: null };
+        }
+    }
+
+    const text = await readBoundedResponseText(response, maxBytes);
+
+    if (text === null) {
+        return { valid: false, value: null };
+    }
+
+    try {
+        return { valid: true, value: JSON.parse(text) };
+    } catch {
+        return { valid: false, value: null };
+    }
+}
+
+async function readBoundedResponseText(response, maxBytes) {
+    if (!response.body?.getReader) {
+        if (typeof response.text !== 'function') {
+            return null;
+        }
+
+        const text = await response.text();
+        return new TextEncoder().encode(text).byteLength <= maxBytes ? text : null;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let size = 0;
+    let text = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+            break;
+        }
+
+        if (!(value instanceof Uint8Array)) {
+            await reader.cancel();
+
+            return null;
+        }
+
+        size += value.byteLength;
+
+        if (size > maxBytes) {
+            await reader.cancel();
+
+            return null;
+        }
+
+        try {
+            text += decoder.decode(value, { stream: true });
+        } catch {
+            await reader.cancel();
+
+            return null;
+        }
+    }
+
+    try {
+        return text + decoder.decode();
+    } catch {
+        return null;
+    }
+}
+
 function validateLeadShape(lead, paths) {
-    validateOptionalString(lead, 'source', 20, paths);
-    validateRequiredString(lead, 'external_reference', 100, paths, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/u);
-    validateRequiredString(lead, 'first_name', 100, paths);
-    validateRequiredString(lead, 'last_name', 100, paths);
-    validateOptionalString(lead, 'company', 150, paths);
-    validateOptionalString(lead, 'email', 254, paths);
-    validateOptionalString(lead, 'phone', 50, paths);
-    validateOptionalString(lead, 'country', 2, paths, /^[A-Z]{2}$/u);
-    validateRequiredString(lead, 'service_interest', 50, paths, /^[a-z][a-z0-9_]*$/u);
-    validateOptionalString(lead, 'message', 5000, paths);
-
-    if ((lead.email === null || lead.email === '' || lead.email === undefined)
-        && (lead.phone === null || lead.phone === '' || lead.phone === undefined)) {
-        paths.push('lead.email', 'lead.phone');
+    for (const field of ['external_reference', 'first_name', 'last_name', 'service_interest']) {
+        if (typeof lead[field] !== 'string') {
+            paths.push(`lead.${field}`);
+        }
     }
 
-    if (lead.email != null && (typeof lead.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(lead.email))) {
-        paths.push('lead.email');
+    for (const field of ['source', 'company', 'email', 'phone', 'country', 'message', 'received_at']) {
+        if (field in lead && lead[field] !== null && typeof lead[field] !== 'string') {
+            paths.push(`lead.${field}`);
+        }
     }
 
-    if (lead.phone != null && (typeof lead.phone !== 'string' || !/^\+?[0-9 .()\-]{7,50}$/u.test(lead.phone))) {
-        paths.push('lead.phone');
-    }
-
-    if ('company_size' in lead && lead.company_size !== null
-        && (!Number.isInteger(lead.company_size) || lead.company_size < 1 || lead.company_size > 4294967295)) {
+    if ('company_size' in lead && lead.company_size !== null && !Number.isInteger(lead.company_size)) {
         paths.push('lead.company_size');
     }
 
-    if (lead.consent !== true) {
+    if (typeof lead.consent !== 'boolean') {
         paths.push('lead.consent');
     }
-
-    if ('received_at' in lead && !isValidUtcDate(lead.received_at)) {
-        paths.push('lead.received_at');
-    }
-}
-
-function validateRequiredString(record, field, maxLength, paths, pattern = null) {
-    if (!(field in record) || typeof record[field] !== 'string' || record[field].length === 0
-        || record[field].length > maxLength || (pattern && !pattern.test(record[field]))) {
-        paths.push(`lead.${field}`);
-    }
-}
-
-function validateOptionalString(record, field, maxLength, paths, pattern = null) {
-    if (!(field in record) || record[field] === null) {
-        return;
-    }
-
-    if (typeof record[field] !== 'string' || record[field].length > maxLength || (pattern && !pattern.test(record[field]))) {
-        paths.push(`lead.${field}`);
-    }
-}
-
-function isValidUtcDate(value) {
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value)) {
-        return false;
-    }
-
-    const date = new Date(value);
-    return !Number.isNaN(date.valueOf()) && date.toISOString().replace('.000Z', 'Z') === value;
 }
 
 function isRecord(value) {
@@ -334,30 +493,33 @@ function isRecord(value) {
 }
 
 function hasExactKeys(record, expectedKeys) {
+    if (!isRecord(record)) {
+        return false;
+    }
+
     const keys = Object.keys(record);
     return keys.length === expectedKeys.length && expectedKeys.every((key) => keys.includes(key));
 }
 
-function successResult(kind, statusCode, lead) {
+function normalizeSuccess(kind, statusCode, lead) {
+    if (!hasExactKeys(lead, ['id', 'status'])
+        || !Number.isSafeInteger(lead.id) || lead.id < 1
+        || typeof lead.status !== 'string' || !leadStatuses.has(lead.status)) {
+        return technicalResult(statusCode);
+    }
+
     const isCreated = kind === 'created';
-    const result = {
+
+    return {
         kind,
         statusCode,
         title: isCreated ? 'Lead créé' : 'Lead déjà reçu',
         message: isCreated
             ? 'Laravel a accepté le payload et créé la réception.'
             : 'Cette référence avait déjà été reçue. Aucun nouveau traitement n’a été lancé.',
+        leadId: lead.id,
+        leadStatus: lead.status,
     };
-
-    if (Number.isSafeInteger(lead?.id) && lead.id > 0) {
-        result.leadId = lead.id;
-    }
-
-    if (typeof lead?.status === 'string' && leadStatuses.has(lead.status)) {
-        result.leadStatus = lead.status;
-    }
-
-    return result;
 }
 
 function technicalResult(statusCode = null) {

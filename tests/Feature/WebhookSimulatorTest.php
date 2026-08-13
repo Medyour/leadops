@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessLead;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -12,15 +14,28 @@ class WebhookSimulatorTest extends TestCase
 
     public function test_simulator_page_is_available_in_testing_with_a_server_owned_endpoint(): void
     {
+        $relativeEndpoint = route('local.webhooks.leads.store', absolute: false);
         $response = $this->get('/tools/webhook');
 
         $response->assertOk()
             ->assertViewIs('tools.webhook')
-            ->assertViewHas('webhookUrl', route('local.webhooks.leads.store'))
+            ->assertViewHas('webhookUrl', $relativeEndpoint)
             ->assertSee('data-webhook-simulator', false)
-            ->assertSee('data-endpoint="'.e(route('local.webhooks.leads.store')).'"', false)
+            ->assertSee('data-endpoint="'.e($relativeEndpoint).'"', false)
             ->assertSee('Laravel reste l’unique autorité de validation')
             ->assertDontSee('name="endpoint"', false);
+
+        $this->assertSame('/api/local/webhooks/leads', $relativeEndpoint);
+        $this->assertStringNotContainsString('://', $relativeEndpoint);
+    }
+
+    public function test_blade_escapes_the_laravel_endpoint_before_passing_it_to_vue(): void
+    {
+        $maliciousEndpoint = '"><script>window.compromised=true</script>';
+        $html = view('tools.webhook', ['webhookUrl' => $maliciousEndpoint])->render();
+
+        $this->assertStringContainsString('data-endpoint="'.e($maliciousEndpoint).'"', $html);
+        $this->assertStringNotContainsString('<script>window.compromised', $html);
     }
 
     public function test_navigation_shows_the_simulator_only_when_its_route_exists(): void
@@ -32,7 +47,39 @@ class WebhookSimulatorTest extends TestCase
 
         $layout = file_get_contents(resource_path('views/layouts/app.blade.php'));
 
+        $this->assertStringContainsString("app()->environment(['local', 'testing'])", $layout);
         $this->assertStringContainsString("Route::has('tools.webhook')", $layout);
+    }
+
+    public function test_real_webhook_path_returns_created_then_already_received_for_the_same_reference(): void
+    {
+        Queue::fake();
+        $payload = [
+            'lead' => [
+                'source' => 'form',
+                'external_reference' => 'webhook-simulator-idempotent-001',
+                'first_name' => 'Prénom',
+                'last_name' => 'Exemple',
+                'company' => 'Atelier Exemple',
+                'email' => 'webhook@example.test',
+                'phone' => '+12025550142',
+                'country' => 'FR',
+                'service_interest' => 'automation',
+                'company_size' => 12,
+                'message' => 'Demande entièrement fictive pour tester le parcours du simulateur.',
+                'consent' => true,
+                'received_at' => '2026-08-13T10:15:30Z',
+            ],
+        ];
+
+        $created = $this->postJson('/api/local/webhooks/leads', $payload);
+        $alreadyReceived = $this->postJson('/api/local/webhooks/leads', $payload);
+
+        $created->assertCreated()->assertJsonPath('result', 'created');
+        $alreadyReceived->assertOk()
+            ->assertJsonPath('result', 'already_received')
+            ->assertJsonPath('lead.id', $created->json('lead.id'));
+        Queue::assertPushed(ProcessLead::class, 1);
     }
 
     public function test_page_and_api_routes_are_registered_only_in_local_and_testing(): void
@@ -53,15 +100,17 @@ class WebhookSimulatorTest extends TestCase
     public function test_cached_routes_keep_the_page_and_api_unavailable_outside_allowed_environments(): void
     {
         foreach (['local', 'testing'] as $environment) {
-            $routeNames = $this->cachedRouteNamesForEnvironment($environment);
-            $this->assertContains('tools.webhook', $routeNames);
-            $this->assertContains('local.webhooks.leads.store', $routeNames);
+            $state = $this->cachedApplicationStateForEnvironment($environment);
+            $this->assertContains('tools.webhook', $state['route_names']);
+            $this->assertContains('local.webhooks.leads.store', $state['route_names']);
+            $this->assertStringContainsString('Simulateur webhook', $state['layout']);
         }
 
         foreach (['production', 'staging'] as $environment) {
-            $routeNames = $this->cachedRouteNamesForEnvironment($environment);
-            $this->assertNotContains('tools.webhook', $routeNames);
-            $this->assertNotContains('local.webhooks.leads.store', $routeNames);
+            $state = $this->cachedApplicationStateForEnvironment($environment);
+            $this->assertNotContains('tools.webhook', $state['route_names']);
+            $this->assertNotContains('local.webhooks.leads.store', $state['route_names']);
+            $this->assertStringNotContainsString('Simulateur webhook', $state['layout']);
         }
     }
 
@@ -83,8 +132,8 @@ class WebhookSimulatorTest extends TestCase
         return array_column(json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR), 'name');
     }
 
-    /** @return list<string|null> */
-    private function cachedRouteNamesForEnvironment(string $environment): array
+    /** @return array{route_names: list<string|null>, layout: string} */
+    private function cachedApplicationStateForEnvironment(string $environment): array
     {
         $suffix = $environment.'-simulator-'.bin2hex(random_bytes(4));
         $configCache = "bootstrap/cache/config-{$suffix}.php";
@@ -101,10 +150,28 @@ class WebhookSimulatorTest extends TestCase
                 $process->mustRun();
             }
 
+            $configuration = require base_path($configCache);
+            $this->assertSame($environment, $configuration['app']['env']);
+
             $process = new Process([PHP_BINARY, 'artisan', 'route:list', '--json'], base_path(), $processEnvironment);
             $process->mustRun();
+            $layoutProcess = new Process([
+                PHP_BINARY,
+                '-r',
+                <<<'PHP'
+                    require 'vendor/autoload.php';
+                    $app = require 'bootstrap/app.php';
+                    $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+                    $app->instance('request', Illuminate\Http\Request::create('/', 'GET'));
+                    echo view('layouts.app')->render();
+                    PHP,
+            ], base_path(), $processEnvironment);
+            $layoutProcess->mustRun();
 
-            return array_column(json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR), 'name');
+            return [
+                'route_names' => array_column(json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR), 'name'),
+                'layout' => $layoutProcess->getOutput(),
+            ];
         } finally {
             @unlink(base_path($configCache));
             @unlink(base_path($routesCache));
