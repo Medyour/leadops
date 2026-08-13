@@ -14,6 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         then: function (): void {
             if (app()->environment(['local', 'testing'])) {
+                Route::middleware('web')
+                    ->group(base_path('routes/local-web.php'));
+
                 Route::middleware('api')
                     ->prefix('api')
                     ->group(base_path('routes/local-api.php'));
