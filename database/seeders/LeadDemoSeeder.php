@@ -14,6 +14,18 @@ use Illuminate\Support\Facades\DB;
 
 class LeadDemoSeeder extends Seeder
 {
+    /** @var array<string, string> */
+    private const SOURCES = [
+        'demo-hot-001' => 'form',
+        'demo-warm-001' => 'csv',
+        'demo-low-001' => 'webhook',
+        'demo-invalid-001' => 'form',
+        'demo-invalid-phone-001' => 'csv',
+        'demo-duplicate-001' => 'webhook',
+        'demo-review-001' => 'form',
+        'demo-failed-001' => 'webhook',
+    ];
+
     private DateTimeZone $utc;
 
     public function run(): void
@@ -44,12 +56,12 @@ class LeadDemoSeeder extends Seeder
 
         return [
             'demo-hot-001' => [
-                'source' => LeadSource::Form->value,
+                'source' => self::SOURCES['demo-hot-001'],
                 'first_name' => 'Aline-Fictive',
                 'last_name' => 'Démo',
                 'company' => 'Atelier Fictif Démo',
                 'email' => 'aline-fictive@example.test',
-                'phone' => '+1 202-555-0100',
+                'phone' => '+12025550100',
                 'country' => 'US',
                 'service_interest' => ServiceInterest::Automation->value,
                 'company_size' => 24,
@@ -65,12 +77,12 @@ class LeadDemoSeeder extends Seeder
                 'processed_at' => '2026-01-15 09:00:10',
             ],
             'demo-warm-001' => [
-                'source' => LeadSource::Csv->value,
+                'source' => self::SOURCES['demo-warm-001'],
                 'first_name' => 'Benoît-Fictif',
                 'last_name' => 'Démo',
                 'company' => 'Bureau Imaginaire Démo',
                 'email' => 'benoit-fictif@example.test',
-                'phone' => '+1 202-555-0101',
+                'phone' => '+12025550101',
                 'country' => null,
                 'service_interest' => ServiceInterest::Dashboard->value,
                 'company_size' => 12,
@@ -86,7 +98,7 @@ class LeadDemoSeeder extends Seeder
                 'processed_at' => '2026-01-15 09:10:10',
             ],
             'demo-low-001' => [
-                'source' => LeadSource::Webhook->value,
+                'source' => self::SOURCES['demo-low-001'],
                 'first_name' => 'Camille-Fictive',
                 'last_name' => 'Démo',
                 'company' => null,
@@ -107,7 +119,7 @@ class LeadDemoSeeder extends Seeder
                 'processed_at' => '2026-01-15 09:20:10',
             ],
             'demo-invalid-001' => [
-                'source' => LeadSource::Form->value,
+                'source' => self::SOURCES['demo-invalid-001'],
                 'first_name' => 'Dorian-Fictif',
                 'last_name' => 'Démo',
                 'company' => 'Structure Fictive Démo',
@@ -124,12 +136,12 @@ class LeadDemoSeeder extends Seeder
                 'received_at' => '2026-01-15 09:30:00',
             ],
             'demo-invalid-phone-001' => [
-                'source' => LeadSource::Csv->value,
+                'source' => self::SOURCES['demo-invalid-phone-001'],
                 'first_name' => 'Élodie-Fictive',
                 'last_name' => 'Démo',
                 'company' => 'Téléphone Fictif Démo',
                 'email' => null,
-                'phone' => '+1 202-555-0199 poste fictif',
+                'phone' => '+1202555019999999',
                 'country' => 'US',
                 'service_interest' => ServiceInterest::BusinessApplication->value,
                 'company_size' => 16,
@@ -141,12 +153,12 @@ class LeadDemoSeeder extends Seeder
                 'received_at' => '2026-01-15 09:40:00',
             ],
             'demo-duplicate-001' => [
-                'source' => LeadSource::Webhook->value,
+                'source' => self::SOURCES['demo-duplicate-001'],
                 'first_name' => 'Farah-Fictive',
                 'last_name' => 'Démo',
                 'company' => 'Doublon Fictif Démo',
                 'email' => 'aline-fictive@example.test',
-                'phone' => '+1 202-555-0100',
+                'phone' => '+12025550100',
                 'country' => 'US',
                 'service_interest' => ServiceInterest::Automation->value,
                 'company_size' => 24,
@@ -158,12 +170,12 @@ class LeadDemoSeeder extends Seeder
                 'received_at' => '2026-01-15 09:50:00',
             ],
             'demo-review-001' => [
-                'source' => LeadSource::Form->value,
+                'source' => self::SOURCES['demo-review-001'],
                 'first_name' => 'Gaël-Fictif',
                 'last_name' => 'Démo',
                 'company' => 'Revue Fictive Démo',
                 'email' => 'aline-fictive@example.test',
-                'phone' => '+1 202-555-0101',
+                'phone' => '+12025550101',
                 'country' => 'FR',
                 'service_interest' => ServiceInterest::Api->value,
                 'company_size' => 18,
@@ -175,12 +187,12 @@ class LeadDemoSeeder extends Seeder
                 'received_at' => '2026-01-15 10:00:00',
             ],
             'demo-failed-001' => [
-                'source' => LeadSource::Webhook->value,
+                'source' => self::SOURCES['demo-failed-001'],
                 'first_name' => 'Hana-Fictive',
                 'last_name' => 'Démo',
                 'company' => 'Incident Fictif Démo',
                 'email' => 'hana-fictive@example.test',
-                'phone' => '+1 202-555-0106',
+                'phone' => '+12025550106',
                 'country' => 'US',
                 'service_interest' => ServiceInterest::Api->value,
                 'company_size' => 20,
@@ -202,6 +214,13 @@ class LeadDemoSeeder extends Seeder
      */
     private function timelines(array $ids): array
     {
+        $receipt = fn (string $reference): array => $this->event(
+            ProcessingEventType::LeadReceived,
+            null,
+            LeadStatus::Received,
+            null,
+            ['reference_fingerprint' => $this->receiptFingerprint($reference)],
+        );
         $routed = function (string $reference, int $score, LeadClassification $classification, string $service, string $assignee) use ($ids): array {
             $ruleCodes = match ($reference) {
                 'demo-warm-001' => [
@@ -220,7 +239,7 @@ class LeadDemoSeeder extends Seeder
             };
 
             return [
-                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint($reference)]),
+                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->receiptFingerprint($reference)]),
                 $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
                 $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
                 $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
@@ -229,13 +248,13 @@ class LeadDemoSeeder extends Seeder
                 $this->event(ProcessingEventType::LeadClassified, LeadStatus::Validating, null, 1, ['classification' => $classification->value]),
                 $this->event(ProcessingEventType::LeadRoutingDecided, LeadStatus::Validating, null, 1, ['service' => $service, 'assigned_to' => $assignee]),
                 $this->event(ProcessingEventType::LeadQualified, LeadStatus::Validating, LeadStatus::Qualified, 1),
-                $this->event(ProcessingEventType::TransmissionSucceeded, LeadStatus::Qualified, null, 1, ['reference_fingerprint' => $this->fingerprint($reference.'-transmission'), 'idempotency_key' => "lead:{$ids[$reference]}:cycle:initial:transmission"]),
+                $this->event(ProcessingEventType::TransmissionSucceeded, LeadStatus::Qualified, null, 1, ['reference_fingerprint' => $this->transmissionFingerprint($ids[$reference]), 'idempotency_key' => $this->transmissionIdempotencyKey($ids[$reference])]),
                 $this->event(ProcessingEventType::LeadRouted, LeadStatus::Qualified, LeadStatus::Routed, 1, ['assigned_to' => $assignee]),
             ];
         };
 
         $invalid = fn (string $reference): array => [
-            $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint($reference)]),
+            $receipt($reference),
             $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
             $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
             $this->event(ProcessingEventType::ValidationFailed, LeadStatus::Validating, LeadStatus::Invalid, 1, ['reason_codes' => ['contact.invalid']]),
@@ -245,15 +264,18 @@ class LeadDemoSeeder extends Seeder
         array_splice($failed, -2);
         $failed = [
             ...$failed,
-            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed']),
-            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed', 'retry_delay' => 1]),
-            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 2),
-            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed']),
-            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed', 'retry_delay' => 5]),
-            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 3),
-            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 3, ['error_code' => 'transmission_failed']),
-            $this->event(ProcessingEventType::ProcessingFailed, LeadStatus::Qualified, LeadStatus::Failed, 3, ['error_code' => 'attempts_exhausted']),
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed'], 9),
+            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 1, ['error_code' => 'transmission_failed', 'retry_delay' => 1], 10),
+            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 2, offsetSeconds: 11),
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed'], 12),
+            $this->event(ProcessingEventType::ProcessingRetryScheduled, LeadStatus::Qualified, null, 2, ['error_code' => 'transmission_failed', 'retry_delay' => 5], 13),
+            $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Qualified, null, 3, offsetSeconds: 18),
+            $this->event(ProcessingEventType::TransmissionFailed, LeadStatus::Qualified, null, 3, ['error_code' => 'transmission_failed'], 19),
+            $this->event(ProcessingEventType::ProcessingFailed, LeadStatus::Qualified, LeadStatus::Failed, 3, ['error_code' => 'attempts_exhausted'], 20),
         ];
+
+        $reviewCandidateIds = [$ids['demo-hot-001'], $ids['demo-warm-001']];
+        sort($reviewCandidateIds);
 
         return [
             'demo-hot-001' => $routed('demo-hot-001', 90, LeadClassification::Hot, ServiceInterest::Automation->value, 'Sarah'),
@@ -262,18 +284,18 @@ class LeadDemoSeeder extends Seeder
             'demo-invalid-001' => $invalid('demo-invalid-001'),
             'demo-invalid-phone-001' => $invalid('demo-invalid-phone-001'),
             'demo-duplicate-001' => [
-                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint('demo-duplicate-001')]),
+                $receipt('demo-duplicate-001'),
                 $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
                 $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
                 $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
                 $this->event(ProcessingEventType::DuplicateDetected, LeadStatus::Validating, LeadStatus::Duplicate, 1, ['candidate_ids' => [$ids['demo-hot-001']]]),
             ],
             'demo-review-001' => [
-                $this->event(ProcessingEventType::LeadReceived, null, LeadStatus::Received, null, ['reference_fingerprint' => $this->fingerprint('demo-review-001')]),
+                $receipt('demo-review-001'),
                 $this->event(ProcessingEventType::ProcessingStarted, LeadStatus::Received, LeadStatus::Validating, 1),
                 $this->event(ProcessingEventType::LeadNormalized, LeadStatus::Validating, null, 1),
                 $this->event(ProcessingEventType::ValidationSucceeded, LeadStatus::Validating, null, 1),
-                $this->event(ProcessingEventType::ReviewRequested, LeadStatus::Validating, LeadStatus::NeedsReview, 1, ['reason_codes' => ['duplicate.ambiguous'], 'candidate_ids' => [$ids['demo-hot-001'], $ids['demo-warm-001']]]),
+                $this->event(ProcessingEventType::ReviewRequested, LeadStatus::Validating, LeadStatus::NeedsReview, 1, ['reason_codes' => ['duplicate.ambiguous'], 'candidate_ids' => $reviewCandidateIds]),
             ],
             'demo-failed-001' => $failed,
         ];
@@ -282,7 +304,22 @@ class LeadDemoSeeder extends Seeder
     /** @param array<string, mixed> $attributes */
     private function upsertLead(string $reference, array $attributes): int
     {
-        $existingId = DB::table('leads')->where('external_reference', $reference)->value('id');
+        $existing = DB::table('leads')
+            ->where('source', $attributes['source'])
+            ->where('external_reference', $reference)
+            ->first();
+
+        if ($existing === null && $attributes['source'] !== LeadSource::Form->value) {
+            $legacy = DB::table('leads')
+                ->where('source', LeadSource::Form->value)
+                ->where('external_reference', $reference)
+                ->first();
+
+            if ($legacy !== null && $this->isLegacyDemoLead($legacy, $reference)) {
+                $existing = $legacy;
+            }
+        }
+
         $timestamp = $attributes['received_at'];
         $values = [
             ...$attributes,
@@ -297,10 +334,10 @@ class LeadDemoSeeder extends Seeder
             'updated_at' => $timestamp,
         ];
 
-        if ($existingId !== null) {
-            DB::table('leads')->where('id', $existingId)->update($values);
+        if ($existing !== null) {
+            DB::table('leads')->where('id', $existing->id)->update($values);
 
-            return (int) $existingId;
+            return (int) $existing->id;
         }
 
         return (int) DB::table('leads')->insertGetId($values);
@@ -321,11 +358,13 @@ class LeadDemoSeeder extends Seeder
         );
 
         foreach ($events as $position => $event) {
+            $offsetSeconds = $event['offset_seconds'] ?? $position;
+            unset($event['offset_seconds']);
             $values = [
                 ...$event,
                 'lead_id' => $leadId,
                 'context' => json_encode($event['context'], JSON_THROW_ON_ERROR),
-                'created_at' => $base->modify(sprintf('+%d seconds', $position))->format('Y-m-d H:i:s'),
+                'created_at' => $base->modify(sprintf('+%d seconds', $offsetSeconds))->format('Y-m-d H:i:s'),
             ];
 
             if (isset($existingIds[$position])) {
@@ -350,14 +389,97 @@ class LeadDemoSeeder extends Seeder
         ?LeadStatus $toStatus,
         ?int $attempt,
         array $context = [],
+        ?int $offsetSeconds = null,
     ): array {
-        return [
+        $event = [
             'type' => $type->value,
             'from_status' => $fromStatus?->value,
             'to_status' => $toStatus?->value,
             'attempt' => $attempt,
             'context' => $context,
         ];
+
+        if ($offsetSeconds !== null) {
+            $event['offset_seconds'] = $offsetSeconds;
+        }
+
+        return $event;
+    }
+
+    private function isLegacyDemoLead(object $lead, string $reference): bool
+    {
+        $signatures = [
+            'demo-warm-001' => [
+                'first_name' => 'Benoit-Fictif', 'last_name' => 'Demo', 'company' => 'Bureau Imaginaire',
+                'email' => 'benoit-fictif@example.test', 'phone' => '+12025550101', 'country' => 'FR',
+                'service_interest' => 'dashboard', 'company_size' => 12, 'normalized_email' => 'benoit-fictif@example.test',
+                'normalized_phone' => '+12025550101', 'score' => 65, 'classification' => 'WARM',
+                'assigned_to' => 'Yassine', 'status' => 'ROUTED', 'processing_attempts' => 1,
+                'processed_at' => '2026-01-15 09:06:00',
+            ],
+            'demo-low-001' => [
+                'first_name' => 'Camille-Fictive', 'last_name' => 'Demo', 'company' => null,
+                'email' => 'camille-fictive@example.test', 'phone' => '+12025550102', 'country' => null,
+                'service_interest' => 'other', 'company_size' => null, 'normalized_email' => 'camille-fictive@example.test',
+                'normalized_phone' => '+12025550102', 'score' => 35, 'classification' => 'LOW',
+                'assigned_to' => 'Emma', 'status' => 'ROUTED', 'processing_attempts' => 1,
+                'processed_at' => '2026-01-15 09:07:00',
+            ],
+            'demo-duplicate-001' => [
+                'first_name' => 'Elise-Fictive', 'last_name' => 'Demo', 'company' => 'Doublon Fictif',
+                'email' => 'aline-fictive@example.test', 'phone' => '+12025550100', 'country' => 'FR',
+                'service_interest' => 'automation', 'company_size' => 12, 'normalized_email' => 'aline-fictive@example.test',
+                'normalized_phone' => '+12025550100', 'score' => null, 'classification' => null,
+                'assigned_to' => null, 'status' => 'DUPLICATE', 'processing_attempts' => 0,
+                'processed_at' => null,
+            ],
+            'demo-failed-001' => [
+                'first_name' => 'Gaelle-Fictive', 'last_name' => 'Demo', 'company' => 'Incident Fictif',
+                'email' => 'gaelle-fictive@example.test', 'phone' => '+12025550106', 'country' => 'FR',
+                'service_interest' => 'automation', 'company_size' => 12, 'normalized_email' => 'gaelle-fictive@example.test',
+                'normalized_phone' => '+12025550106', 'score' => null, 'classification' => null,
+                'assigned_to' => null, 'status' => 'FAILED', 'processing_attempts' => 3,
+                'processed_at' => null,
+            ],
+        ];
+
+        $signature = $signatures[$reference] ?? null;
+        if ($signature === null
+            || $lead->received_at !== '2026-01-15 09:00:00'
+            || (int) $lead->consent !== 1
+            || $lead->message !== 'Message entièrement fictif destiné à la démonstration locale LeadOps.') {
+            return false;
+        }
+
+        foreach ($signature as $field => $value) {
+            if ($lead->{$field} !== $value) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function receiptFingerprint(string $reference): string
+    {
+        return $this->fingerprint(self::SOURCES[$reference].'|'.$reference);
+    }
+
+    private function transmissionIdempotencyKey(int $leadId): string
+    {
+        return "lead:{$leadId}:cycle:initial:transmission";
+    }
+
+    private function transmissionFingerprint(int $leadId): string
+    {
+        $idempotencyKey = $this->transmissionIdempotencyKey($leadId);
+        $reference = sprintf(
+            '%s-%s',
+            config('leadops.transmission.reference_prefix', 'simulated'),
+            substr(hash('sha256', $idempotencyKey), 0, 16),
+        );
+
+        return $this->fingerprint($reference);
     }
 
     private function fingerprint(string $value): string
