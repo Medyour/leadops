@@ -9,7 +9,7 @@
             <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Tous les leads</h1>
             <p class="mt-2 text-slate-600">{{ $leads->total() }} résultat{{ $leads->total() > 1 ? 's' : '' }}</p>
         </div>
-        @if (app()->environment(['local', 'testing']))
+        @if (\App\Support\LocalEnvironment::allowsMutations())
             <a href="{{ route('leads.create') }}" class="rounded-lg bg-blue-700 px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2">Nouveau lead</a>
         @endif
     </div>

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Domain\LeadProcessing\Enums\LeadSource;
 use App\Domain\LeadProcessing\Enums\LeadStatus;
 use App\Domain\LeadProcessing\Enums\ProcessingEventType;
+use App\Http\Middleware\EnsureLocalEnvironment;
 use App\Jobs\ProcessLead;
 use App\Models\Lead;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -329,7 +330,7 @@ class LocalWebhookTest extends TestCase
         $route = app('router')->getRoutes()->getByName('local.webhooks.leads.store');
 
         $this->assertNotNull($route);
-        $this->assertSame(['api', 'throttle:local-webhook'], $route->gatherMiddleware());
+        $this->assertSame(['api', EnsureLocalEnvironment::class, 'throttle:local-webhook'], $route->gatherMiddleware());
         $expandedMiddleware = app('router')->gatherRouteMiddleware($route);
         $this->assertNotContains(StartSession::class, $expandedMiddleware);
         $this->assertNotContains(PreventRequestForgery::class, $expandedMiddleware);

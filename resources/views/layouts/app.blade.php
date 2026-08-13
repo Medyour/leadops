@@ -20,7 +20,7 @@
                     @foreach ([route('dashboard') => ['Tableau de bord', 'dashboard'], route('leads.index') => ['Leads', 'leads.*'], route('exceptions.index') => ['Exceptions', 'exceptions.*']] as $href => [$label, $pattern])
                         <li><a href="{{ $href }}" @if(request()->routeIs($pattern)) aria-current="page" @endif class="block rounded-lg px-3 py-2 {{ request()->routeIs($pattern) ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-100' }} focus:outline-none focus:ring-2 focus:ring-blue-600">{{ $label }}</a></li>
                     @endforeach
-                    @if (app()->environment(['local', 'testing']))
+                    @if (\App\Support\LocalEnvironment::allowsMutations())
                         <li><a href="{{ route('imports.csv.create') }}" @if(request()->routeIs('imports.csv.*')) aria-current="page" @endif class="block rounded-lg px-3 py-2 {{ request()->routeIs('imports.csv.*') ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-100' }} focus:outline-none focus:ring-2 focus:ring-blue-600">Import CSV</a></li>
                         @if (Route::has('tools.webhook'))
                             <li><a href="{{ route('tools.webhook') }}" @if(request()->routeIs('tools.webhook')) aria-current="page" @endif class="block rounded-lg px-3 py-2 {{ request()->routeIs('tools.webhook') ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-100' }} focus:outline-none focus:ring-2 focus:ring-blue-600">Simulateur webhook</a></li>

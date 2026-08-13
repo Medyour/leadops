@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\LocalEnvironment;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -10,15 +11,8 @@ final class EnsureLeadMutationsAreLocal
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->routeIs(
-            'leads.create',
-            'leads.store',
-            'leads.review.update',
-            'leads.reprocess',
-            'leads.retry',
-            'imports.csv.*',
-        )) {
-            abort_unless(app()->environment(['local', 'testing']), 404);
+        if (! $request->isMethodSafe()) {
+            abort_unless(LocalEnvironment::allowsMutations(), 404);
         }
 
         return $next($request);

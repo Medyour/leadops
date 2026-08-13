@@ -2,13 +2,14 @@
 
 namespace App\Http\Requests;
 
+use App\Support\LocalEnvironment;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreLeadRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return LocalEnvironment::allowsMutations();
     }
 
     /** @return array<string, list<string>> */
