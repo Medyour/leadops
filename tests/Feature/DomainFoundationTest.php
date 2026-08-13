@@ -283,7 +283,7 @@ class DomainFoundationTest extends TestCase
 
         $this->seed(LeadDemoSeeder::class);
 
-        $this->assertDatabaseCount('leads', 7);
+        $this->assertDatabaseCount('leads', 8);
         $this->assertDatabaseHas('leads', ['classification' => 'HOT', 'assigned_to' => 'Sarah', 'status' => 'ROUTED']);
         $this->assertDatabaseHas('leads', ['classification' => 'WARM', 'assigned_to' => 'Yassine', 'status' => 'ROUTED']);
         $this->assertDatabaseHas('leads', ['classification' => 'LOW', 'assigned_to' => 'Emma', 'status' => 'ROUTED']);
@@ -291,7 +291,8 @@ class DomainFoundationTest extends TestCase
         $this->assertDatabaseHas('leads', ['status' => 'DUPLICATE']);
         $this->assertDatabaseHas('leads', ['status' => 'NEEDS_REVIEW']);
         $this->assertDatabaseHas('leads', ['status' => 'FAILED']);
-        $this->assertDatabaseCount('processing_events', 6);
+        $this->assertSame(2, Lead::query()->where('status', 'INVALID')->count());
+        $this->assertDatabaseCount('processing_events', 68);
         $this->assertSame($firstLeadSnapshot, $this->tableSnapshot('leads', 'external_reference'));
         $this->assertSame($firstEventSnapshot, $this->tableSnapshot('processing_events', 'id'));
 
