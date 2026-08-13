@@ -1,5 +1,5 @@
 @if ($errors->has('action'))
-    <div id="exception-action" role="alert" class="mt-6 rounded-xl border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-950">
+    <div id="exception-action" role="alert" tabindex="-1" autofocus class="mt-6 rounded-xl border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-950">
         {{ $errors->first('action') }}
     </div>
 @endif
@@ -15,7 +15,7 @@
         </div>
 
         @if ($errors->any() && ! $errors->has('action'))
-            <div role="alert" aria-labelledby="review-errors-title" class="mt-6 rounded-xl border border-red-300 bg-red-50 p-4 text-red-950">
+            <div role="alert" aria-labelledby="review-errors-title" tabindex="-1" autofocus class="mt-6 rounded-xl border border-red-300 bg-red-50 p-4 text-red-950">
                 <h3 id="review-errors-title" class="font-bold">Le formulaire contient des erreurs.</h3>
                 <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
                     @foreach ($errors->messages() as $field => $messages)

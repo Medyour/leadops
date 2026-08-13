@@ -58,7 +58,7 @@ class LeadProcessingPipelineTest extends TestCase
         $this->assertSame(1, $lead->processing_attempts);
         $this->assertNotNull($lead->processed_at);
         $this->assertSame(1, $transmitter->calls);
-        $this->assertSame('lead:'.$lead->id.':transmission', $transmitter->idempotencyKeys[0]);
+        $this->assertSame('lead:'.$lead->id.':cycle:initial:transmission', $transmitter->idempotencyKeys[0]);
 
         $this->assertSame([
             'processing.started',
@@ -453,7 +453,7 @@ class LeadProcessingPipelineTest extends TestCase
         $this->assertSame('lead-processing', $job->queue);
         $this->assertTrue($job->afterCommit);
         $this->assertSame([1, 5], $job->backoff());
-        $this->assertSame('lead:42', $job->uniqueId());
+        $this->assertSame('lead:42:cycle:initial', $job->uniqueId());
 
         ProcessLead::dispatch(42);
         ProcessLead::dispatch(42);

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class UpdateLeadReviewRequest extends FormRequest
 {
@@ -37,6 +39,7 @@ class UpdateLeadReviewRequest extends FormRequest
             'processed_at' => ['prohibited'],
             'normalized_email' => ['prohibited'],
             'normalized_phone' => ['prohibited'],
+            'cycle_id' => ['prohibited'],
         ];
     }
 
@@ -49,5 +52,14 @@ class UpdateLeadReviewRequest extends FormRequest
             'phone.regex' => 'Le format du téléphone est invalide.',
             '*.prohibited' => 'Ce champ ne peut pas être modifié.',
         ];
+    }
+
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(
+            $this->redirector
+                ->to($this->getRedirectUrl())
+                ->withErrors($validator, $this->errorBag),
+        );
     }
 }

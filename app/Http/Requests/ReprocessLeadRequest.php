@@ -14,6 +14,8 @@ class ReprocessLeadRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        return [];
+        return [
+            'cycle_id' => ['prohibited'],
+        ];
     }
 }
