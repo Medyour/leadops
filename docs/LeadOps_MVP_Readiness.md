@@ -49,6 +49,10 @@ Les routes locales utilisent désormais un middleware dédié. La décision exig
 
 La garde web ciblait une liste de routes. Elle couvre maintenant toute méthode HTTP non sûre dans le groupe web, ce qui protège aussi une future mutation oubliée dans la liste.
 
+### Route de stockage inscriptible hors du groupe web
+
+Le disque local Laravel conservait l’option `serve` du squelette, qui enregistrait automatiquement une route `PUT /storage/{path}` hors du groupe web. Cette fonctionnalité n’est pas utilisée par LeadOps et contredisait la lecture seule stricte hors environnement local. Le service HTTP du disque privé est désormais désactivé ; les téléchargements d’exemple restent des fichiers publics statiques et les tests confirment l’absence des routes Laravel de lecture et d’écriture du stockage.
+
 ### Sessions et cache navigateur
 
 Le modèle de session était non chiffré par défaut et les réponses métier ne forçaient pas `no-store`. Les sessions sont maintenant chiffrées par défaut et toutes les réponses dynamiques utilisent `Cache-Control: no-store, private`.
@@ -98,12 +102,12 @@ Validation locale finale du 13 août 2026 :
 | migrations SQLite temporaires | réussies |
 | `LeadDemoSeeder` exécuté deux fois | reproductible, 8 leads |
 | `vendor/bin/pint --test` | réussi |
-| suite Laravel | 180 tests, 3 124 assertions |
+| suite Laravel | 181 tests, 3 129 assertions |
 | tests JavaScript | 31 réussis |
-| build Vite | réussi en 605 ms |
+| build Vite | réussi en 609 ms |
 | bundle CSS principal | 68,30 kB, 13,64 kB gzip |
 | bundle JavaScript principal | 85,18 kB, 32,41 kB gzip |
-| routes et caches | `local`/`testing` autorisés ; `production`/`staging` en lecture seule |
+| routes et caches | `local`/`testing` autorisés ; `production`/`staging` en lecture seule ; aucune route de stockage inscriptible |
 | cache local sous runtime production | 9 outils ou mutations sensibles refusés en `404` |
 | audit de fichiers et secrets | aucun fichier ou secret interdit détecté |
 | contrôle visuel à 320 px | aucun débordement de page sur les parcours contrôlés |

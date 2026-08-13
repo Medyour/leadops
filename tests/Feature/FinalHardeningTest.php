@@ -91,4 +91,14 @@ class FinalHardeningTest extends TestCase
     {
         $this->assertTrue((bool) config('session.encrypt'));
     }
+
+    public function test_the_local_disk_does_not_register_public_read_or_write_routes(): void
+    {
+        $this->assertFalse((bool) config('filesystems.disks.local.serve'));
+        $this->assertNull(app('router')->getRoutes()->getByName('storage.local'));
+        $this->assertNull(app('router')->getRoutes()->getByName('storage.local.upload'));
+
+        $this->get('/storage/example.csv')->assertNotFound();
+        $this->put('/storage/example.csv')->assertNotFound();
+    }
 }
