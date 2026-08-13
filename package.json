@@ -5,7 +5,7 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite",
-        "test:js": "node --test tests/JavaScript/csv-import-preview.test.js"
+        "test:js": "node --test tests/JavaScript/csv-import-preview.test.js tests/JavaScript/webhook-simulator.test.js"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

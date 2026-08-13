@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import CsvImportPreview from './components/CsvImportPreview.vue';
+import WebhookSimulator from './components/WebhookSimulator.vue';
 
 document.querySelectorAll('[data-csv-import-preview]').forEach((element) => {
     try {
@@ -20,4 +21,14 @@ document.querySelectorAll('[data-csv-import-preview]').forEach((element) => {
     } catch {
         // Progressive enhancement: the native Blade form remains available.
     }
+});
+
+document.querySelectorAll('[data-webhook-simulator]').forEach((element) => {
+    const endpoint = element.dataset.endpoint;
+
+    if (!endpoint) {
+        return;
+    }
+
+    createApp(WebhookSimulator, { endpoint }).mount(element);
 });
