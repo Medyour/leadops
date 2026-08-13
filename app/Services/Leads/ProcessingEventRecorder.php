@@ -12,7 +12,9 @@ final class ProcessingEventRecorder
     private const ALLOWED_CONTEXT_KEYS = [
         'assigned_to',
         'candidate_ids',
+        'changed_fields',
         'classification',
+        'cycle_id',
         'error_code',
         'idempotency_key',
         'reason_codes',

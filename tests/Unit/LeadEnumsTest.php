@@ -42,6 +42,9 @@ class LeadEnumsTest extends TestCase
             'processing.retry_scheduled',
             'processing.failed',
             'review.requested',
+            'review.corrected',
+            'review.reprocessing_requested',
+            'processing.manual_retry_requested',
         ], array_column(ProcessingEventType::cases(), 'value'));
     }
 

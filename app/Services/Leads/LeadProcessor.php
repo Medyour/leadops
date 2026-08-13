@@ -31,9 +31,9 @@ final class LeadProcessor
         private ProcessingEventRecorder $recorder,
     ) {}
 
-    public function process(int $leadId): void
+    public function process(int $leadId, ?string $cycleId = null): void
     {
-        $preparation = DB::transaction(function () use ($leadId): array|Throwable|null {
+        $preparation = DB::transaction(function () use ($leadId, $cycleId): array|Throwable|null {
             $lead = Lead::query()->lockForUpdate()->findOrFail($leadId);
 
             if (! in_array($lead->status, [LeadStatus::Received, LeadStatus::Validating, LeadStatus::Qualified], true)) {
@@ -58,12 +58,18 @@ final class LeadProcessor
             $lead->forceFill(['processing_attempts' => $attempt])->save();
 
             if ($lead->status === LeadStatus::Received) {
-                $this->transition->transition($lead, LeadStatus::Validating, $attempt);
+                $this->transition->transition(
+                    $lead,
+                    LeadStatus::Validating,
+                    $attempt,
+                    $cycleId === null ? [] : ['cycle_id' => $cycleId],
+                );
             } else {
                 $this->recorder->record(
                     $lead,
                     ProcessingEventType::ProcessingStarted,
                     $attempt,
+                    $cycleId === null ? [] : ['cycle_id' => $cycleId],
                     fromStatus: $lead->status,
                 );
             }

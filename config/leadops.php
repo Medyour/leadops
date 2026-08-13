@@ -14,6 +14,13 @@ return [
         )),
     ],
 
+    'exception_actions' => [
+        'rate_limit_per_minute' => max(1, min(
+            60,
+            (int) env('LEADOPS_EXCEPTION_ACTIONS_RATE_LIMIT', 10),
+        )),
+    ],
+
     'normalization' => [
         'phone_country_calling_codes' => [
             'BE' => '32',

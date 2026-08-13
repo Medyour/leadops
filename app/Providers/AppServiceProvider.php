@@ -58,5 +58,16 @@ class AppServiceProvider extends ServiceProvider
                     'result' => 'rate_limited',
                 ], 429, $headers));
         });
+
+        RateLimiter::for('exception-actions', function (Request $request): Limit {
+            $clientKey = hash_hmac(
+                'sha256',
+                (string) $request->ip(),
+                (string) config('app.key'),
+            );
+
+            return Limit::perMinute((int) config('leadops.exception_actions.rate_limit_per_minute'))
+                ->by('exception-actions:'.$clientKey);
+        });
     }
 }
