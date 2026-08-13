@@ -4,7 +4,7 @@
     </div>
 @endif
 
-@if (app()->environment(['local', 'testing']) && $lead->status === \App\Domain\LeadProcessing\Enums\LeadStatus::NeedsReview)
+@if (\App\Support\LocalEnvironment::allowsMutations() && $lead->status === \App\Domain\LeadProcessing\Enums\LeadStatus::NeedsReview)
     <section aria-labelledby="review-title" class="mt-8 rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm sm:p-6">
         <div class="max-w-3xl">
             <p class="text-sm font-bold uppercase tracking-widest text-amber-800">Intervention humaine</p>
@@ -97,7 +97,7 @@
     </section>
 @endif
 
-@if (app()->environment(['local', 'testing']) && $lead->status === \App\Domain\LeadProcessing\Enums\LeadStatus::Failed)
+@if (\App\Support\LocalEnvironment::allowsMutations() && $lead->status === \App\Domain\LeadProcessing\Enums\LeadStatus::Failed)
     <section aria-labelledby="retry-title" class="mt-8 rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-8 sm:p-6">
         <div>
             <p class="text-sm font-bold uppercase tracking-widest text-red-800">Échec technique</p>

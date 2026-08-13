@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\LocalEnvironment;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -10,7 +11,7 @@ class UpdateLeadReviewRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return app()->environment(['local', 'testing']);
+        return LocalEnvironment::allowsMutations();
     }
 
     /** @return array<string, list<string>> */

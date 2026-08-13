@@ -2,13 +2,14 @@
 
 namespace App\Http\Requests;
 
+use App\Support\LocalEnvironment;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ReprocessLeadRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return app()->environment(['local', 'testing']);
+        return LocalEnvironment::allowsMutations();
     }
 
     /** @return array<string, mixed> */

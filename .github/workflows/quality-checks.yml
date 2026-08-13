@@ -60,11 +60,17 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
 
+      - name: Audit PHP dependencies
+        run: composer audit --locked --no-interaction
+
       - name: Generate application key
         run: php artisan key:generate
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=low
 
       - name: Run JavaScript tests
         run: npm run test:js
@@ -75,8 +81,10 @@ jobs:
       - name: Check code style
         run: vendor/bin/pint --test
 
-      - name: Run database migrations
-        run: php artisan migrate --force
+      - name: Rebuild and seed the SQLite database reproducibly
+        run: |
+          php artisan migrate:fresh --seed --force
+          php artisan db:seed --class=LeadDemoSeeder --force
 
       - name: Run Laravel tests
         run: php artisan test

@@ -47,7 +47,7 @@ class WebhookSimulatorTest extends TestCase
 
         $layout = file_get_contents(resource_path('views/layouts/app.blade.php'));
 
-        $this->assertStringContainsString("app()->environment(['local', 'testing'])", $layout);
+        $this->assertStringContainsString('LocalEnvironment::allowsMutations()', $layout);
         $this->assertStringContainsString("Route::has('tools.webhook')", $layout);
     }
 
