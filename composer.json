@@ -2,10 +2,12 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "laravel/laravel",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "LeadOps, a local demonstrator for deterministic B2B lead processing.",
     "keywords": [
         "laravel",
-        "framework"
+        "framework",
+        "lead-operations",
+        "demo"
     ],
     "license": "MIT",
     "require": {
