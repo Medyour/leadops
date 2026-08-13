@@ -10,7 +10,14 @@ final class EnsureLeadMutationsAreLocal
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->routeIs('leads.create', 'leads.store', 'imports.csv.*')) {
+        if ($request->routeIs(
+            'leads.create',
+            'leads.store',
+            'leads.review.update',
+            'leads.reprocess',
+            'leads.retry',
+            'imports.csv.*',
+        )) {
             abort_unless(app()->environment(['local', 'testing']), 404);
         }
 

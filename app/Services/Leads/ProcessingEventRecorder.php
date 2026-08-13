@@ -12,7 +12,9 @@ final class ProcessingEventRecorder
     private const ALLOWED_CONTEXT_KEYS = [
         'assigned_to',
         'candidate_ids',
+        'changed_fields',
         'classification',
+        'cycle_id',
         'error_code',
         'idempotency_key',
         'reason_codes',
@@ -37,7 +39,7 @@ final class ProcessingEventRecorder
             'from_status' => $fromStatus,
             'to_status' => $toStatus,
             'attempt' => $attempt,
-            'context' => $this->sanitize($context),
+            'context' => $this->sanitize($type, $context),
         ]);
     }
 
@@ -45,7 +47,7 @@ final class ProcessingEventRecorder
      * @param  array<string, mixed>  $context
      * @return array<string, mixed>
      */
-    private function sanitize(array $context): array
+    private function sanitize(ProcessingEventType $type, array $context): array
     {
         $safe = [];
 
@@ -55,10 +57,18 @@ final class ProcessingEventRecorder
             }
 
             if (is_array($value)) {
-                $safe[$key] = array_slice(array_values(array_filter(
+                $items = array_slice(array_values(array_filter(
                     $value,
                     static fn (mixed $item): bool => is_int($item) || is_string($item),
                 )), 0, 25);
+
+                if ($key === 'changed_fields') {
+                    $items = $type === ProcessingEventType::ReviewCorrected
+                        ? array_values(array_intersect(LeadExceptionActionService::CORRECTABLE_FIELDS, $items))
+                        : [];
+                }
+
+                $safe[$key] = $items;
             } elseif (is_int($value) || is_bool($value)) {
                 $safe[$key] = $value;
             } elseif (is_string($value)) {

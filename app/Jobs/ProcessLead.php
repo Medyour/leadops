@@ -19,8 +19,10 @@ class ProcessLead implements ShouldBeUnique, ShouldQueue
 
     public int $timeout;
 
-    public function __construct(public readonly int $leadId)
-    {
+    public function __construct(
+        public readonly int $leadId,
+        public readonly ?string $cycleId = null,
+    ) {
         $this->uniqueFor = (int) config('leadops.processing.unique_for');
         $this->timeout = (int) config('leadops.processing.job_timeout');
         $this->onConnection('database');
@@ -47,16 +49,25 @@ class ProcessLead implements ShouldBeUnique, ShouldQueue
 
     public function uniqueId(): string
     {
-        return "lead:{$this->leadId}";
+        return "lead:{$this->leadId}:cycle:".($this->cycleId ?? 'initial');
     }
 
     public function handle(LeadProcessor $processor): void
     {
-        $processor->process($this->leadId);
+        $queueAttempt = $this->attempts();
+        $processor->process(
+            $this->leadId,
+            $this->cycleId,
+            $queueAttempt > 0 ? $queueAttempt : null,
+        );
     }
 
     public function failed(?Throwable $exception): void
     {
-        app(LeadProcessor::class)->markFailedAfterExhaustion($this->leadId, $this->attempts());
+        app(LeadProcessor::class)->markFailedAfterExhaustion(
+            $this->leadId,
+            $this->attempts(),
+            $this->cycleId,
+        );
     }
 }

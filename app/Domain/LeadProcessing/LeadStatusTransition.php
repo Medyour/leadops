@@ -15,20 +15,29 @@ final class LeadStatusTransition
     public function __construct(private ProcessingEventRecorder $recorder) {}
 
     /** @param array<string, mixed> $context */
-    public function transition(Lead $lead, LeadStatus $to, ?int $attempt = null, array $context = []): void
-    {
+    public function transition(
+        Lead $lead,
+        LeadStatus $to,
+        ?int $attempt = null,
+        array $context = [],
+        ?ProcessingEventType $eventType = null,
+    ): void {
         try {
-            DB::transaction(function () use ($lead, $to, $attempt, $context): void {
+            DB::transaction(function () use ($lead, $to, $attempt, $context, $eventType): void {
                 $from = $lead->status;
 
                 if (! $from->canTransitionTo($to)) {
                     throw new DomainException("Transition from {$from->value} to {$to->value} is not allowed.");
                 }
 
+                $resolvedEventType = $this->resolveEventType($from, $to, $eventType);
+
                 $attributes = ['status' => $to];
 
                 if ($to === LeadStatus::Validating && in_array($from, [LeadStatus::Failed, LeadStatus::NeedsReview], true)) {
                     $attributes += [
+                        'normalized_email' => null,
+                        'normalized_phone' => null,
                         'score' => null,
                         'classification' => null,
                         'assigned_to' => null,
@@ -46,7 +55,7 @@ final class LeadStatusTransition
 
                 $this->recorder->record(
                     $lead,
-                    $this->eventTypeFor($to),
+                    $resolvedEventType,
                     $attempt,
                     $context,
                     $from,
@@ -62,6 +71,28 @@ final class LeadStatusTransition
 
             throw $exception;
         }
+    }
+
+    private function resolveEventType(
+        LeadStatus $from,
+        LeadStatus $to,
+        ?ProcessingEventType $override,
+    ): ProcessingEventType {
+        if ($override === null) {
+            return $this->eventTypeFor($to);
+        }
+
+        $expectedOverride = match (true) {
+            $from === LeadStatus::NeedsReview && $to === LeadStatus::Validating => ProcessingEventType::ReviewReprocessingRequested,
+            $from === LeadStatus::Failed && $to === LeadStatus::Validating => ProcessingEventType::ManualRetryRequested,
+            default => null,
+        };
+
+        if ($override !== $expectedOverride) {
+            throw new DomainException('The event override is not allowed for this status transition.');
+        }
+
+        return $override;
     }
 
     private function eventTypeFor(LeadStatus $status): ProcessingEventType

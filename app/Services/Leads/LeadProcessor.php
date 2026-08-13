@@ -14,6 +14,7 @@ use App\Domain\LeadProcessing\LeadRouter;
 use App\Domain\LeadProcessing\LeadScorer;
 use App\Domain\LeadProcessing\LeadStatusTransition;
 use App\Models\Lead;
+use App\Models\ProcessingEvent;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -31,12 +32,19 @@ final class LeadProcessor
         private ProcessingEventRecorder $recorder,
     ) {}
 
-    public function process(int $leadId): void
-    {
-        $preparation = DB::transaction(function () use ($leadId): array|Throwable|null {
+    public function process(
+        int $leadId,
+        ?string $cycleId = null,
+        ?int $queueAttempt = null,
+    ): void {
+        $preparation = DB::transaction(function () use ($leadId, $cycleId, $queueAttempt): array|Throwable|null {
             $lead = Lead::query()->lockForUpdate()->findOrFail($leadId);
 
             if (! in_array($lead->status, [LeadStatus::Received, LeadStatus::Validating, LeadStatus::Qualified], true)) {
+                return null;
+            }
+
+            if (! $this->isCurrentCycle($lead, $cycleId)) {
                 return null;
             }
 
@@ -47,30 +55,43 @@ final class LeadProcessor
                         $lead,
                         LeadStatus::Failed,
                         $lead->processing_attempts,
-                        ['error_code' => 'attempts_exhausted'],
+                        $this->cycleContext($cycleId, ['error_code' => 'attempts_exhausted']),
                     );
                 }
 
                 return null;
             }
 
-            $attempt = $lead->processing_attempts + 1;
+            $attempt = $queueAttempt ?? $lead->processing_attempts + 1;
+
+            if ($attempt < 1
+                || $attempt > $maximumAttempts
+                || ($queueAttempt !== null && $lead->processing_attempts + 1 !== $attempt)) {
+                return null;
+            }
+
             $lead->forceFill(['processing_attempts' => $attempt])->save();
 
             if ($lead->status === LeadStatus::Received) {
-                $this->transition->transition($lead, LeadStatus::Validating, $attempt);
+                $this->transition->transition(
+                    $lead,
+                    LeadStatus::Validating,
+                    $attempt,
+                    $cycleId === null ? [] : ['cycle_id' => $cycleId],
+                );
             } else {
                 $this->recorder->record(
                     $lead,
                     ProcessingEventType::ProcessingStarted,
                     $attempt,
+                    $cycleId === null ? [] : ['cycle_id' => $cycleId],
                     fromStatus: $lead->status,
                 );
             }
 
             try {
                 if ($lead->status === LeadStatus::Validating) {
-                    if (! $this->qualify($lead, $attempt)) {
+                    if (! $this->qualify($lead, $attempt, $cycleId)) {
                         return null;
                     }
                 }
@@ -80,6 +101,7 @@ final class LeadProcessor
                     $attempt,
                     ProcessingEventType::ProcessingAttemptFailed,
                     'technical_failure',
+                    $cycleId,
                 );
 
                 return $exception;
@@ -87,7 +109,7 @@ final class LeadProcessor
 
             return [
                 'attempt' => $attempt,
-                'idempotency_key' => "lead:{$lead->getKey()}:transmission",
+                'idempotency_key' => "lead:{$lead->getKey()}:cycle:".($cycleId ?? 'initial').':transmission',
                 'lead' => $lead,
             ];
         });
@@ -115,6 +137,7 @@ final class LeadProcessor
             $this->recordTechnicalFailure(
                 $leadId,
                 $attempt,
+                $cycleId,
                 ProcessingEventType::TransmissionFailed,
                 $exception instanceof LeadTransmissionException
                     ? 'transmission_failed'
@@ -125,12 +148,13 @@ final class LeadProcessor
         }
 
         try {
-            DB::transaction(function () use ($leadId, $attempt, $idempotencyKey, $result): void {
+            DB::transaction(function () use ($leadId, $attempt, $cycleId, $idempotencyKey, $result): void {
                 $lead = Lead::query()->lockForUpdate()->findOrFail($leadId);
 
                 if ($lead->status === LeadStatus::Routed
                     || $lead->status !== LeadStatus::Qualified
-                    || $lead->processing_attempts !== $attempt) {
+                    || $lead->processing_attempts !== $attempt
+                    || ! $this->isCurrentCycle($lead, $cycleId)) {
                     return;
                 }
 
@@ -138,23 +162,24 @@ final class LeadProcessor
                     $lead,
                     ProcessingEventType::TransmissionSucceeded,
                     $attempt,
-                    [
+                    $this->cycleContext($cycleId, [
                         'reference_fingerprint' => substr(hash('sha256', $result->reference ?? 'simulated'), 0, 16),
                         'idempotency_key' => $idempotencyKey,
-                    ],
+                    ]),
                     $lead->status,
                 );
                 $this->transition->transition(
                     $lead,
                     LeadStatus::Routed,
                     $attempt,
-                    ['assigned_to' => $lead->assigned_to],
+                    $this->cycleContext($cycleId, ['assigned_to' => $lead->assigned_to]),
                 );
             });
         } catch (Throwable $exception) {
             $this->recordTechnicalFailure(
                 $leadId,
                 $attempt,
+                $cycleId,
                 ProcessingEventType::ProcessingAttemptFailed,
                 'technical_failure',
             );
@@ -163,13 +188,18 @@ final class LeadProcessor
         }
     }
 
-    public function markFailedAfterExhaustion(int $leadId, ?int $queueAttempts = null): void
-    {
-        DB::transaction(function () use ($leadId, $queueAttempts): void {
+    public function markFailedAfterExhaustion(
+        int $leadId,
+        ?int $queueAttempts = null,
+        ?string $cycleId = null,
+    ): void {
+        DB::transaction(function () use ($leadId, $queueAttempts, $cycleId): void {
             $lead = Lead::query()->lockForUpdate()->find($leadId);
             $maximumAttempts = (int) config('leadops.processing.max_attempts');
 
-            if ($lead === null || ! in_array($lead->status, [LeadStatus::Validating, LeadStatus::Qualified], true)) {
+            if ($lead === null
+                || ! in_array($lead->status, [LeadStatus::Validating, LeadStatus::Qualified], true)
+                || ! $this->isCurrentCycle($lead, $cycleId)) {
                 return;
             }
 
@@ -187,7 +217,7 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::Failed,
                 $attempts,
-                ['error_code' => 'attempts_exhausted'],
+                $this->cycleContext($cycleId, ['error_code' => 'attempts_exhausted']),
             );
         });
     }
@@ -195,19 +225,21 @@ final class LeadProcessor
     private function recordTechnicalFailure(
         int $leadId,
         int $attempt,
+        ?string $cycleId,
         ProcessingEventType $eventType,
         string $errorCode,
     ): void {
-        DB::transaction(function () use ($leadId, $attempt, $eventType, $errorCode): void {
+        DB::transaction(function () use ($leadId, $attempt, $cycleId, $eventType, $errorCode): void {
             $lead = Lead::query()->lockForUpdate()->find($leadId);
 
             if ($lead === null
                 || ! in_array($lead->status, [LeadStatus::Validating, LeadStatus::Qualified], true)
-                || $lead->processing_attempts !== $attempt) {
+                || $lead->processing_attempts !== $attempt
+                || ! $this->isCurrentCycle($lead, $cycleId)) {
                 return;
             }
 
-            $this->recordFailureEvents($lead, $attempt, $eventType, $errorCode);
+            $this->recordFailureEvents($lead, $attempt, $eventType, $errorCode, $cycleId);
         });
     }
 
@@ -216,12 +248,13 @@ final class LeadProcessor
         int $attempt,
         ProcessingEventType $eventType,
         string $errorCode,
+        ?string $cycleId = null,
     ): void {
         $this->recorder->record(
             $lead,
             $eventType,
             $attempt,
-            ['error_code' => $errorCode],
+            $this->cycleContext($cycleId, ['error_code' => $errorCode]),
             $lead->status,
         );
 
@@ -232,13 +265,35 @@ final class LeadProcessor
                 $lead,
                 ProcessingEventType::ProcessingRetryScheduled,
                 $attempt,
-                ['error_code' => $errorCode, 'retry_delay' => $retryDelay],
+                $this->cycleContext($cycleId, ['error_code' => $errorCode, 'retry_delay' => $retryDelay]),
                 $lead->status,
             );
         }
     }
 
-    private function qualify(Lead $lead, int $attempt): bool
+    private function isCurrentCycle(Lead $lead, ?string $cycleId): bool
+    {
+        $latestAction = ProcessingEvent::query()
+            ->where('lead_id', $lead->getKey())
+            ->whereIn('type', [
+                ProcessingEventType::ReviewReprocessingRequested->value,
+                ProcessingEventType::ManualRetryRequested->value,
+            ])
+            ->latest('id')
+            ->first();
+
+        if ($latestAction === null) {
+            return $cycleId === null;
+        }
+
+        $currentCycleId = $latestAction->context['cycle_id'] ?? null;
+
+        return is_string($cycleId)
+            && is_string($currentCycleId)
+            && hash_equals($currentCycleId, $cycleId);
+    }
+
+    private function qualify(Lead $lead, int $attempt, ?string $cycleId): bool
     {
         $normalized = $this->normalizer->normalize($lead->getAttributes());
         $lead->forceFill($normalized)->save();
@@ -246,6 +301,7 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::LeadNormalized,
             $attempt,
+            $this->cycleContext($cycleId),
             fromStatus: $lead->status,
         );
 
@@ -255,7 +311,7 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::Invalid,
                 $attempt,
-                ['reason_codes' => $validation->invalidReasonCodes],
+                $this->cycleContext($cycleId, ['reason_codes' => $validation->invalidReasonCodes]),
             );
 
             return false;
@@ -266,7 +322,7 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::NeedsReview,
                 $attempt,
-                ['reason_codes' => $validation->reviewReasonCodes],
+                $this->cycleContext($cycleId, ['reason_codes' => $validation->reviewReasonCodes]),
             );
 
             return false;
@@ -276,6 +332,7 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::ValidationSucceeded,
             $attempt,
+            $this->cycleContext($cycleId),
             fromStatus: $lead->status,
         );
 
@@ -286,7 +343,7 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::Duplicate,
                 $attempt,
-                ['candidate_ids' => $duplicates->candidateIds],
+                $this->cycleContext($cycleId, ['candidate_ids' => $duplicates->candidateIds]),
             );
 
             return false;
@@ -297,10 +354,10 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::NeedsReview,
                 $attempt,
-                [
+                $this->cycleContext($cycleId, [
                     'reason_codes' => ['duplicate.ambiguous'],
                     'candidate_ids' => $duplicates->candidateIds,
-                ],
+                ]),
             );
 
             return false;
@@ -310,6 +367,7 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::DuplicateChecked,
             $attempt,
+            $this->cycleContext($cycleId),
             fromStatus: $lead->status,
         );
 
@@ -319,7 +377,7 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::ScoreCalculated,
             $attempt,
-            ['score' => $score->score, 'rule_codes' => $score->ruleCodes],
+            $this->cycleContext($cycleId, ['score' => $score->score, 'rule_codes' => $score->ruleCodes]),
             $lead->status,
         );
 
@@ -329,7 +387,7 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::LeadClassified,
             $attempt,
-            ['classification' => $classification->value],
+            $this->cycleContext($cycleId, ['classification' => $classification->value]),
             $lead->status,
         );
 
@@ -339,7 +397,7 @@ final class LeadProcessor
                 $lead,
                 LeadStatus::NeedsReview,
                 $attempt,
-                ['reason_codes' => ['routing.unknown_service']],
+                $this->cycleContext($cycleId, ['reason_codes' => ['routing.unknown_service']]),
             );
 
             return false;
@@ -350,11 +408,27 @@ final class LeadProcessor
             $lead,
             ProcessingEventType::LeadRoutingDecided,
             $attempt,
-            ['service' => $lead->service_interest, 'assigned_to' => $routing->assignedTo],
+            $this->cycleContext($cycleId, ['service' => $lead->service_interest, 'assigned_to' => $routing->assignedTo]),
             $lead->status,
         );
-        $this->transition->transition($lead, LeadStatus::Qualified, $attempt);
+        $this->transition->transition(
+            $lead,
+            LeadStatus::Qualified,
+            $attempt,
+            $this->cycleContext($cycleId),
+        );
 
         return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function cycleContext(?string $cycleId, array $context = []): array
+    {
+        return $cycleId === null
+            ? $context
+            : ['cycle_id' => $cycleId, ...$context];
     }
 }

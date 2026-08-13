@@ -39,6 +39,8 @@
         </div>
     @endif
 
+    @include('leads._exception_actions')
+
     <section aria-labelledby="summary-title" class="mt-8">
         <h2 id="summary-title" class="text-xl font-black text-slate-950">Synthèse du traitement</h2>
         <dl class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">

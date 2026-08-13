@@ -22,4 +22,7 @@ enum ProcessingEventType: string
     case ProcessingRetryScheduled = 'processing.retry_scheduled';
     case ProcessingFailed = 'processing.failed';
     case ReviewRequested = 'review.requested';
+    case ReviewCorrected = 'review.corrected';
+    case ReviewReprocessingRequested = 'review.reprocessing_requested';
+    case ManualRetryRequested = 'processing.manual_retry_requested';
 }

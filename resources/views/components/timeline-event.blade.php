@@ -18,6 +18,9 @@
         'transmission.failed' => 'Transmission simulée échouée',
         'lead.routed' => 'Lead routé',
         'review.requested' => 'Examen demandé',
+        'review.corrected' => 'Correction humaine enregistrée',
+        'review.reprocessing_requested' => 'Retraitement après revue demandé',
+        'processing.manual_retry_requested' => 'Reprise manuelle demandée',
         'processing.retry_scheduled' => 'Nouvelle tentative planifiée',
         'processing.attempt_failed' => 'Tentative échouée',
         'processing.failed' => 'Traitement échoué',
@@ -33,6 +36,8 @@
         'candidate_ids' => 'Identifiants candidats',
         'retry_delay' => 'Délai de reprise',
         'error_code' => 'Code d’erreur',
+        'changed_fields' => 'Champs corrigés',
+        'cycle_id' => 'Cycle de traitement',
     ];
     $visibleContext = array_intersect_key($event->context ?? [], $contextLabels);
 @endphp
