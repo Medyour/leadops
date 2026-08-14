@@ -76,10 +76,14 @@ jobs:
         run: npm run test:js
 
       - name: Build frontend assets
+        env:
+          VITE_BUILD_DIRECTORY: build-ci
         run: npm run build
 
-      - name: Verify committed frontend assets
-        run: git diff --exit-code -- public/build
+      - name: Verify isolated frontend build
+        run: |
+          test -s public/build-ci/manifest.json
+          git diff --exit-code -- public/build
 
       - name: Detect committed secrets
         run: |

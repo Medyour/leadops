@@ -38,6 +38,11 @@ class ProductionDeploymentTest extends TestCase
         $gitignore = file_get_contents(base_path('.gitignore'));
         $this->assertIsString($gitignore);
         $this->assertStringContainsString('/public/build', $gitignore);
+        $this->assertStringContainsString('/public/build-ci', $gitignore);
+
+        $viteConfig = file_get_contents(base_path('vite.config.js'));
+        $this->assertIsString($viteConfig);
+        $this->assertStringContainsString("process.env.VITE_BUILD_DIRECTORY === 'build-ci'", $viteConfig);
     }
 
     public function test_health_check_is_stateless_and_has_no_database_dependency(): void

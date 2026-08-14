@@ -14,7 +14,7 @@ Le script `scripts/prepare-production.sh` :
 4. vérifie exactement 8 leads, 68 événements et 0 job, puis supprime tout journal SQLite résiduel ;
 5. rend le fichier SQLite non inscriptible et prépare les caches de routes et de vues.
 
-`environment_slug: php` garantit le buildpack PHP, mais la documentation DigitalOcean ne garantit pas la présence simultanée de Node/npm dans ce runtime. Le build DigitalOcean ne les invoque donc pas. La CI utilise Node 20.20.2 pour construire Vite, vérifie que les fichiers versionnés sous `public/build` sont strictement à jour, puis la préparation de production contrôle leur présence. Références : [buildpack PHP](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/php/) et [buildpack Node.js](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/nodejs/).
+`environment_slug: php` garantit le buildpack PHP, mais la documentation DigitalOcean ne garantit pas la présence simultanée de Node/npm dans ce runtime. Le build DigitalOcean ne les invoque donc pas. La CI utilise Node 20.20.2 pour construire Vite dans un répertoire de contrôle isolé, sans écraser les assets versionnés sous `public/build`, puis la préparation de production contrôle la présence de leur manifeste. Références : [buildpack PHP](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/php/) et [buildpack Node.js](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/nodejs/).
 
 La base fait partie de l’image construite. Elle est volontairement reconstructible et jetable. Au runtime, `DB_READ_ONLY=true` active `PRAGMA query_only=ON` sur chaque connexion SQLite. Les routes non sûres restent en plus refusées hors `local` et `testing`.
 
