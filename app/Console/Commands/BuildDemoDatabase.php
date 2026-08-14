@@ -24,7 +24,15 @@ class BuildDemoDatabase extends Command
 
         try {
             DB::purge('sqlite');
-            File::delete($path);
+
+            if (File::exists($path) && ! @chmod($path, 0644)) {
+                throw new RuntimeException('The existing demo database could not be made writable.');
+            }
+
+            if (File::exists($path) && ! File::delete($path)) {
+                throw new RuntimeException('The existing demo database could not be removed.');
+            }
+
             File::put($path, '');
 
             config([

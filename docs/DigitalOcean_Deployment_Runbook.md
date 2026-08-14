@@ -9,12 +9,12 @@ Le buildpack PHP DigitalOcean reconnaît Laravel via `composer.json`, utilise ac
 Le script `scripts/prepare-production.sh` :
 
 1. installe les dépendances Composer sans paquets de développement ;
-2. installe les dépendances npm verrouillées, exécute Vite, puis retire les dépendances npm de développement ;
+2. vérifie que le manifeste Vite préconstruit et versionné est présent ;
 3. recrée `database/demo.sqlite` par migrations fraîches et `LeadDemoSeeder` uniquement ;
-4. vérifie exactement 8 leads, 68 événements et 0 job ;
+4. vérifie exactement 8 leads, 68 événements et 0 job, puis supprime tout journal SQLite résiduel ;
 5. rend le fichier SQLite non inscriptible et prépare les caches de routes et de vues.
 
-Les applications d’exemple PHP/Laravel composites utilisent encore le buildpack Node.js historique, dont la pile Ubuntu 22 accepte Node 6 à 21. Le dépôt fixe donc Node à la branche `20.x` ; Vite 8 exige au moins Node 20.19, et la CI utilise précisément Node 20.20.2. Le script installe les dépendances de développement pendant le build, construit Vite, exécute `npm prune --omit=dev`, puis retire entièrement `node_modules` de l’image runtime. Références : [buildpack Node.js historique](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/legacy-nodejs/) et [migration du buildpack Node.js](https://docs.digitalocean.com/products/app-platform/how-to/migrate-nodejs-buildpack/).
+`environment_slug: php` garantit le buildpack PHP, mais la documentation DigitalOcean ne garantit pas la présence simultanée de Node/npm dans ce runtime. Le build DigitalOcean ne les invoque donc pas. La CI utilise Node 20.20.2 pour construire Vite, vérifie que les fichiers versionnés sous `public/build` sont strictement à jour, puis la préparation de production contrôle leur présence. Références : [buildpack PHP](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/php/) et [buildpack Node.js](https://docs.digitalocean.com/products/app-platform/reference/buildpacks/nodejs/).
 
 La base fait partie de l’image construite. Elle est volontairement reconstructible et jetable. Au runtime, `DB_READ_ONLY=true` active `PRAGMA query_only=ON` sur chaque connexion SQLite. Les routes non sûres restent en plus refusées hors `local` et `testing`.
 
@@ -47,7 +47,7 @@ Les variables importantes déjà décrites par le modèle sont :
 | `SESSION_SECURE_COOKIE` | `true` |
 | `SESSION_HTTP_ONLY` | `true` |
 | `SESSION_SAME_SITE` | `lax` |
-| `TRUSTED_PROXIES` | `*` |
+| `TRUSTED_PROXIES` | `*` (seul `X-Forwarded-Proto` est accepté) |
 
 `APP_KEY` ne figure volontairement pas dans le fichier App Spec, même sous forme de valeur factice déployable. DigitalOcean permet de chiffrer les variables sensibles et fournit `${APP_URL}` comme variable liée à l’URL primaire. Référence : [variables d’environnement et secrets](https://docs.digitalocean.com/products/app-platform/how-to/use-environment-variables/).
 
@@ -65,17 +65,17 @@ Cette procédure décrit les actions à effectuer ; elle ne les automatise pas.
 8. Ajouter `APP_KEY` comme variable chiffrée de portée runtime avant le lancement.
 9. Vérifier le récapitulatif et le coût, puis déclencher le premier déploiement manuellement.
 
-Le plan `apps-s-1vcpu-0.5gb` fournit actuellement 1 vCPU partagé, 512 Mio de RAM et 50 Gio de transfert pour 5 USD par mois. La facturation est à la seconde avec un minimum d’une minute. Référence : [tarification App Platform](https://docs.digitalocean.com/products/app-platform/details/pricing/).
+Le plan `apps-s-1vcpu-0.5gb` fournit actuellement 1 vCPU partagé, 512 Mio de RAM et 50 Gio de transfert pour 5 USD par mois. Les services sont facturés au tarif mensuel, au prorata de la seconde ; le transfert sortant au-delà de l’allocation est facturé séparément. Référence : [tarification App Platform](https://docs.digitalocean.com/products/app-platform/details/pricing/).
 
 ## URL temporaire et HTTPS
 
 Après un déploiement réussi, DigitalOcean attribue une URL `https://<nom>.ondigitalocean.app`. Utiliser cette URL technique avant tout sous-domaine personnalisé. Référence : [gestion des domaines](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/).
 
-App Platform redirige HTTP vers HTTPS et termine TLS en bordure. Laravel fait confiance aux en-têtes `X-Forwarded-*` uniquement lorsque `TRUSTED_PROXIES` est explicitement configuré. Les cookies sont `Secure`, `HttpOnly` et `SameSite=Lax`. HSTS et CSP ne sont pas activés par ce déploiement : le domaine `.app` bénéficie déjà du préchargement HSTS du TLD et une politique CSP doit être conçue après stabilisation des assets. Références : [limites HTTPS/HSTS](https://docs.digitalocean.com/products/app-platform/details/limits/) et [fonctionnalités HTTPS](https://docs.digitalocean.com/products/app-platform/details/features/).
+App Platform redirige HTTP vers HTTPS et termine TLS en bordure. Laravel accepte uniquement `X-Forwarded-Proto` depuis le proxy configuré ; les valeurs transmises de host, port et adresse cliente ne sont pas approuvées. Les cookies sont `Secure`, `HttpOnly` et `SameSite=Lax`. HSTS et CSP ne sont pas ajoutés par l’application ; une politique CSP doit être conçue après stabilisation des assets. Références : [limites HTTPS/HSTS](https://docs.digitalocean.com/products/app-platform/details/limits/) et [fonctionnalités HTTPS](https://docs.digitalocean.com/products/app-platform/details/features/).
 
 ## Health check
 
-Le service utilise `GET /health` sur le port `8080`. Cette route renvoie `204 No Content`, ne modifie aucune donnée et ne révèle aucun contenu métier. Le health check laisse 10 secondes au démarrage, s’exécute toutes les 10 secondes et échoue après cinq erreurs consécutives. Référence : [health checks App Platform](https://docs.digitalocean.com/products/app-platform/how-to/manage-health-checks/).
+Le service utilise `GET /health` sur le port `8080`. Cette route Laravel dédiée renvoie `204 No Content`, reste hors du groupe de middlewares web, n’ouvre aucune session, ne consulte pas SQLite et ne révèle aucun contenu métier. Elle est incluse dans le cache de routes. Le health check laisse 10 secondes au démarrage, s’exécute toutes les 10 secondes et échoue après cinq erreurs consécutives. Référence : [health checks App Platform](https://docs.digitalocean.com/products/app-platform/how-to/manage-health-checks/).
 
 ## Contrôles après déploiement
 
@@ -83,14 +83,14 @@ Le service utilise `GET /health` sur le port `8080`. Cette route renvoie `204 No
 2. Vérifier `GET /health` : statut `204`, corps vide.
 3. Vérifier les redirections HTTP vers HTTPS et les URLs générées en `https://`.
 4. Vérifier les en-têtes `Cache-Control`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` et l’absence volontaire de CSP/HSTS applicatifs.
-5. Vérifier que les routes locales et toutes les méthodes `POST`, `PUT`, `PATCH` et `DELETE` renvoient `404`.
+5. Vérifier que les routes locales renvoient `404` et que toutes les méthodes `POST`, `PUT`, `PATCH` et `DELETE` restent refusées (`404` pour les routes explicitement fermées, `405` lorsqu’aucune route ne correspond à la méthode).
 6. Vérifier dans les logs de build : 8 leads, 68 événements et 0 job.
 7. Vérifier l’absence de worker et que les logs applicatifs apparaissent dans les logs runtime DigitalOcean, pas dans un fichier persistant.
 8. Vérifier que ni `database/*.sqlite`, ni `.env`, ni clé ou jeton ne sont suivis par Git.
 
 ## Rollback
 
-App Platform conserve les déploiements réussis récents et permet de redéployer une version antérieure depuis l’onglet **Deployments**. Sélectionner le dernier déploiement connu comme sain, lancer le rollback, puis répéter les contrôles ci-dessus. La base SQLite correspondant au commit est reconstruite dans l’image du rollback ; aucune restauration de données runtime n’est requise. DigitalOcean annonce la restauration possible vers l’un des dix derniers déploiements réussis dans les [fonctionnalités App Platform](https://docs.digitalocean.com/products/app-platform/details/features/).
+App Platform conserve les déploiements réussis récents et permet de redéployer une version antérieure depuis l’onglet **Deployments**. Sélectionner le dernier déploiement connu comme sain, lancer le rollback, puis répéter les contrôles ci-dessus. La base SQLite contenue dans l’image du déploiement restauré correspond à cette version ; aucune restauration de données runtime n’est requise. DigitalOcean annonce la restauration possible vers l’un des dix derniers déploiements réussis dans les [fonctionnalités App Platform](https://docs.digitalocean.com/products/app-platform/details/features/).
 
 ## Connexion future du sous-domaine
 

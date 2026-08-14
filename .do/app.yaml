@@ -23,6 +23,8 @@ services:
       timeout_seconds: 5
       success_threshold: 1
       failure_threshold: 5
+    # Add APP_KEY manually as an encrypted RUN_TIME variable before deployment.
+    # Its value must never be committed to this specification.
     envs:
       - key: APP_NAME
         value: LeadOps

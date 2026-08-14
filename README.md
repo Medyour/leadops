@@ -86,7 +86,7 @@ La CI GitHub exécute également une reconstruction et un double chargement du s
 
 ## Déploiement public en lecture seule
 
-Une configuration minimale DigitalOcean App Platform est fournie dans [`.do/app.yaml`](.do/app.yaml). Elle utilise le buildpack PHP natif, construit les assets Vite, recrée une base SQLite de démonstration de 8 leads et 68 événements, puis démarre une unique instance web sans worker ni service de données.
+Une configuration minimale DigitalOcean App Platform est fournie dans [`.do/app.yaml`](.do/app.yaml). Elle utilise le buildpack PHP natif, vérifie les assets Vite préconstruits et versionnés, recrée une base SQLite de démonstration de 8 leads et 68 événements, puis démarre une unique instance web sans worker ni service de données.
 
 La procédure ne doit pas être lancée automatiquement : le dépôt privé doit être sélectionné manuellement, `APP_KEY` doit être générée hors Git et enregistrée comme variable chiffrée, et le déploiement sur `main` reste manuel. Le guide complet se trouve dans [docs/DigitalOcean_Deployment_Runbook.md](docs/DigitalOcean_Deployment_Runbook.md).
 

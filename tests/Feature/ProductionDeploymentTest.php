@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Support\Facades\Route;
 use PDO;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -22,18 +23,38 @@ class ProductionDeploymentTest extends TestCase
         $this->assertStringContainsString('http_path: /health', $spec);
         $this->assertStringContainsString('DB_READ_ONLY', $spec);
         $this->assertStringContainsString('value: "true"', $spec);
-        $this->assertStringNotContainsString('APP_KEY', $spec);
+        $this->assertStringNotContainsString('key: APP_KEY', $spec);
         $this->assertDoesNotMatchRegularExpression('/^(workers|jobs|databases|domains):/m', $spec);
         $this->assertFileDoesNotExist(base_path('Dockerfile'));
 
         $build = file_get_contents(base_path('scripts/prepare-production.sh'));
         $this->assertIsString($build);
         $this->assertStringContainsString('composer install --no-dev', $build);
-        $this->assertStringContainsString('npm ci', $build);
-        $this->assertStringContainsString('npm run build', $build);
-        $this->assertStringContainsString('npm prune --omit=dev', $build);
-        $this->assertStringContainsString('rm -rf node_modules', $build);
-        $this->assertStringContainsString('chmod 0444 database/demo.sqlite', $build);
+        $this->assertStringContainsString('test -s public/build/manifest.json', $build);
+        $this->assertStringNotContainsString('npm ', $build);
+        $this->assertStringContainsString('chmod 0444 -- database/demo.sqlite', $build);
+        $this->assertFileExists(public_path('build/manifest.json'));
+    }
+
+    public function test_health_check_is_stateless_and_has_no_database_dependency(): void
+    {
+        config([
+            'database.default' => 'sqlite',
+            'database.connections.sqlite.database' => database_path('missing-health.sqlite'),
+            'session.driver' => 'database',
+        ]);
+
+        $route = collect(Route::getRoutes())->first(
+            static fn ($route): bool => $route->uri() === 'health' && in_array('GET', $route->methods(), true),
+        );
+
+        $this->assertNotNull($route);
+        $this->assertNotContains('web', $route->gatherMiddleware());
+        $this->withCookie(config('session.cookie'), 'untrusted-session')
+            ->get('/health')
+            ->assertNoContent()
+            ->assertHeaderMissing('Set-Cookie');
+        $this->assertFileDoesNotExist(database_path('missing-health.sqlite'));
     }
 
     public function test_demo_database_build_is_reproducible_and_has_the_exact_manifest(): void
@@ -42,6 +63,7 @@ class ProductionDeploymentTest extends TestCase
 
         try {
             $first = $this->buildDatabase($path);
+            chmod($path, 0444);
             $second = $this->buildDatabase($path);
 
             $this->assertSame($first, $second);
@@ -84,15 +106,27 @@ class ProductionDeploymentTest extends TestCase
                     $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
                     $health = Illuminate\Http\Request::create('/health', 'GET', server: [
                         'REMOTE_ADDR' => '10.0.0.10',
+                        'HTTP_HOST' => 'leadops-ci.example.test',
                         'HTTP_X_FORWARDED_PROTO' => 'https',
-                        'HTTP_X_FORWARDED_HOST' => 'leadops-demo.ondigitalocean.app',
-                        'HTTP_X_FORWARDED_PORT' => '443',
+                        'HTTP_X_FORWARDED_HOST' => 'attacker.example.test',
+                        'HTTP_X_FORWARDED_PORT' => '81',
                     ]);
                     $healthResponse = $kernel->handle($health);
                     echo $healthResponse->getStatusCode(), PHP_EOL;
                     echo $healthResponse->getContent() === '' ? 'empty' : 'not-empty', PHP_EOL;
                     echo $health->isSecure() ? 'secure' : 'insecure', PHP_EOL;
+                    echo $health->getHost(), PHP_EOL;
                     $kernel->terminate($health, $healthResponse);
+
+                    foreach (['/', '/leads', '/exceptions', '/leads/1'] as $path) {
+                        $request = Illuminate\Http\Request::create($path, 'GET', server: [
+                            'HTTP_HOST' => 'leadops-ci.example.test',
+                            'HTTP_X_FORWARDED_PROTO' => 'https',
+                        ]);
+                        $response = $kernel->handle($request);
+                        echo $response->getStatusCode(), PHP_EOL;
+                        $kernel->terminate($request, $response);
+                    }
 
                     $mutation = Illuminate\Http\Request::create('/leads', 'POST');
                     $mutationResponse = $kernel->handle($mutation);
@@ -114,6 +148,11 @@ class ProductionDeploymentTest extends TestCase
                 '204',
                 'empty',
                 'secure',
+                'leadops-ci.example.test',
+                '200',
+                '200',
+                '200',
+                '200',
                 '404',
                 'array',
                 'array',

@@ -78,6 +78,14 @@ jobs:
       - name: Build frontend assets
         run: npm run build
 
+      - name: Verify committed frontend assets
+        run: git diff --exit-code -- public/build
+
+      - name: Detect committed secrets
+        run: |
+          ! git grep -IlE '(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|base64:[A-Za-z0-9+/]{40,}={0,2})' -- .
+          ! git grep -IlE '^APP_KEY=.+$' -- .
+
       - name: Check code style
         run: vendor/bin/pint --test
 
@@ -89,30 +97,45 @@ jobs:
       - name: Run Laravel tests
         run: php artisan test
 
-      - name: Simulate the production build
-        run: bash scripts/prepare-production.sh
-
-      - name: Verify the production database is reproducible
+      - name: Simulate the production build twice
         run: |
+          bash scripts/prepare-production.sh
           php scripts/production-snapshot.php database/demo.sqlite > /tmp/leadops-first.json
-          APP_ENV=production APP_DEBUG=false DB_CONNECTION=sqlite DB_DATABASE=database/demo.sqlite DB_READ_ONLY=false php artisan leadops:build-demo-database database/demo.sqlite --no-interaction
+          sha256sum database/demo.sqlite | cut -d ' ' -f 1 > /tmp/leadops-first.sha256
+          bash scripts/prepare-production.sh
           php scripts/production-snapshot.php database/demo.sqlite > /tmp/leadops-second.json
+          sha256sum database/demo.sqlite | cut -d ' ' -f 1 > /tmp/leadops-second.sha256
           diff --brief /tmp/leadops-first.json /tmp/leadops-second.json
+          diff --brief /tmp/leadops-first.sha256 /tmp/leadops-second.sha256
           grep -F '"counts":{"leads":8,"events":68,"jobs":0}' /tmp/leadops-second.json
+          test "$(stat -c '%a' database/demo.sqlite)" = 444
+          test ! -e database/demo.sqlite-wal
+          test ! -e database/demo.sqlite-shm
+          test ! -e database/demo.sqlite-journal
 
       - name: Verify production caches and routes
         env:
+          APP_NAME: LeadOps
           APP_ENV: production
           APP_DEBUG: 'false'
           APP_URL: https://leadops-ci.example.test
+          APP_LOCALE: fr
+          APP_FALLBACK_LOCALE: fr
           DB_CONNECTION: sqlite
           DB_DATABASE: database/demo.sqlite
           DB_READ_ONLY: 'true'
+          DB_FOREIGN_KEYS: 'true'
           SESSION_DRIVER: array
+          SESSION_ENCRYPT: 'true'
+          SESSION_SECURE_COOKIE: 'true'
+          SESSION_HTTP_ONLY: 'true'
+          SESSION_SAME_SITE: lax
           CACHE_STORE: array
           QUEUE_CONNECTION: discard
           QUEUE_FAILED_DRIVER: 'null'
           LOG_CHANNEL: stderr
+          LOG_LEVEL: warning
+          MAIL_MAILER: array
           TRUSTED_PROXIES: '*'
         run: |
           export APP_KEY="$(php artisan key:generate --show)"
@@ -121,3 +144,4 @@ jobs:
           php artisan view:cache
           php artisan route:list --except-vendor
           php artisan about --only=environment
+          php scripts/verify-production-runtime.php

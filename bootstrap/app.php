@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         then: function (): void {
+            Route::get('/health', static fn () => response()->noContent());
+
             if (LocalEnvironment::allowsMutations()) {
                 Route::middleware('web')
                     ->group(base_path('routes/local-web.php'));
@@ -35,10 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 at: str_contains($trustedProxies, ',')
                     ? array_map('trim', explode(',', $trustedProxies))
                     : $trustedProxies,
-                headers: Request::HEADER_X_FORWARDED_FOR
-                    | Request::HEADER_X_FORWARDED_HOST
-                    | Request::HEADER_X_FORWARDED_PORT
-                    | Request::HEADER_X_FORWARDED_PROTO,
+                headers: Request::HEADER_X_FORWARDED_PROTO,
             );
         }
 
