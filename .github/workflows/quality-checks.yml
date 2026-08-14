@@ -34,7 +34,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: '20.20.2'
           cache: npm
 
       - name: Locate Composer cache
@@ -88,3 +88,36 @@ jobs:
 
       - name: Run Laravel tests
         run: php artisan test
+
+      - name: Simulate the production build
+        run: bash scripts/prepare-production.sh
+
+      - name: Verify the production database is reproducible
+        run: |
+          php scripts/production-snapshot.php database/demo.sqlite > /tmp/leadops-first.json
+          APP_ENV=production APP_DEBUG=false DB_CONNECTION=sqlite DB_DATABASE=database/demo.sqlite DB_READ_ONLY=false php artisan leadops:build-demo-database database/demo.sqlite --no-interaction
+          php scripts/production-snapshot.php database/demo.sqlite > /tmp/leadops-second.json
+          diff --brief /tmp/leadops-first.json /tmp/leadops-second.json
+          grep -F '"counts":{"leads":8,"events":68,"jobs":0}' /tmp/leadops-second.json
+
+      - name: Verify production caches and routes
+        env:
+          APP_ENV: production
+          APP_DEBUG: 'false'
+          APP_URL: https://leadops-ci.example.test
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/demo.sqlite
+          DB_READ_ONLY: 'true'
+          SESSION_DRIVER: array
+          CACHE_STORE: array
+          QUEUE_CONNECTION: discard
+          QUEUE_FAILED_DRIVER: 'null'
+          LOG_CHANNEL: stderr
+          TRUSTED_PROXIES: '*'
+        run: |
+          export APP_KEY="$(php artisan key:generate --show)"
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+          php artisan route:list --except-vendor
+          php artisan about --only=environment
