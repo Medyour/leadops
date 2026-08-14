@@ -34,6 +34,10 @@ class ProductionDeploymentTest extends TestCase
         $this->assertStringNotContainsString('npm ', $build);
         $this->assertStringContainsString('chmod 0444 -- database/demo.sqlite', $build);
         $this->assertFileExists(public_path('build/manifest.json'));
+
+        $gitignore = file_get_contents(base_path('.gitignore'));
+        $this->assertIsString($gitignore);
+        $this->assertStringContainsString('/public/build', $gitignore);
     }
 
     public function test_health_check_is_stateless_and_has_no_database_dependency(): void
