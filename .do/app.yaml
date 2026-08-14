@@ -1,0 +1,116 @@
+name: leadops
+features:
+  - buildpack-stack=ubuntu-22
+alerts:
+  - rule: DEPLOYMENT_FAILED
+services:
+  - name: web
+    environment_slug: php
+    github:
+      repo: Medyour/leadops
+      branch: main
+      deploy_on_push: false
+    source_dir: /
+    build_command: bash scripts/prepare-production.sh
+    run_command: php artisan config:cache && exec heroku-php-apache2 public/
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 5
+    # Add APP_KEY manually as an encrypted RUN_TIME variable before deployment.
+    # Its value must never be committed to this specification.
+    envs:
+      - key: APP_NAME
+        value: LeadOps
+        scope: RUN_AND_BUILD_TIME
+        type: GENERAL
+      - key: APP_ENV
+        value: production
+        scope: RUN_AND_BUILD_TIME
+        type: GENERAL
+      - key: APP_DEBUG
+        value: "false"
+        scope: RUN_AND_BUILD_TIME
+        type: GENERAL
+      - key: APP_URL
+        value: ${APP_URL}
+        scope: RUN_TIME
+        type: GENERAL
+      - key: APP_LOCALE
+        value: fr
+        scope: RUN_TIME
+        type: GENERAL
+      - key: APP_FALLBACK_LOCALE
+        value: fr
+        scope: RUN_TIME
+        type: GENERAL
+      - key: DB_CONNECTION
+        value: sqlite
+        scope: RUN_TIME
+        type: GENERAL
+      - key: DB_DATABASE
+        value: database/demo.sqlite
+        scope: RUN_TIME
+        type: GENERAL
+      - key: DB_READ_ONLY
+        value: "true"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: DB_FOREIGN_KEYS
+        value: "true"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SESSION_DRIVER
+        value: array
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SESSION_ENCRYPT
+        value: "true"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SESSION_HTTP_ONLY
+        value: "true"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SESSION_SAME_SITE
+        value: lax
+        scope: RUN_TIME
+        type: GENERAL
+      - key: CACHE_STORE
+        value: array
+        scope: RUN_TIME
+        type: GENERAL
+      - key: QUEUE_CONNECTION
+        value: discard
+        scope: RUN_TIME
+        type: GENERAL
+      - key: QUEUE_FAILED_DRIVER
+        value: "null"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: LOG_CHANNEL
+        value: stderr
+        scope: RUN_TIME
+        type: GENERAL
+      - key: LOG_LEVEL
+        value: warning
+        scope: RUN_TIME
+        type: GENERAL
+      - key: MAIL_MAILER
+        value: array
+        scope: RUN_TIME
+        type: GENERAL
+      - key: TRUSTED_PROXIES
+        value: "*"
+        scope: RUN_TIME
+        type: GENERAL

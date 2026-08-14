@@ -38,6 +38,9 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+            'pragmas' => env('DB_READ_ONLY', false) ? [
+                'query_only' => 'ON',
+            ] : [],
             'busy_timeout' => null,
             'journal_mode' => null,
             'synchronous' => null,
