@@ -14,7 +14,6 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
-        health: '/up',
         then: function (): void {
             if (LocalEnvironment::allowsMutations()) {
                 Route::middleware('web')
@@ -27,6 +26,22 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $trustedProxies = env('TRUSTED_PROXIES');
+
+        if (is_string($trustedProxies) && trim($trustedProxies) !== '') {
+            $trustedProxies = trim($trustedProxies);
+
+            $middleware->trustProxies(
+                at: str_contains($trustedProxies, ',')
+                    ? array_map('trim', explode(',', $trustedProxies))
+                    : $trustedProxies,
+                headers: Request::HEADER_X_FORWARDED_FOR
+                    | Request::HEADER_X_FORWARDED_HOST
+                    | Request::HEADER_X_FORWARDED_PORT
+                    | Request::HEADER_X_FORWARDED_PROTO,
+            );
+        }
+
         $middleware->append(AddSecurityHeaders::class);
         $middleware->web(prepend: [EnsureLeadMutationsAreLocal::class]);
     })

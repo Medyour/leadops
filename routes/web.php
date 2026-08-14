@@ -7,6 +7,8 @@ use App\Http\Controllers\LeadController;
 use App\Http\Middleware\EnsureLocalEnvironment;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/health', static fn () => response()->noContent())->name('health');
+
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
 Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
