@@ -12,6 +12,7 @@
     "license": "MIT",
     "require": {
         "php": "~8.3.0",
+        "ext-pdo_sqlite": "*",
         "laravel/framework": "^13.17",
         "laravel/tinker": "^3.0"
     },
