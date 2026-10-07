@@ -9,6 +9,17 @@ use Tests\TestCase;
 
 class ProductionDeploymentTest extends TestCase
 {
+    public function test_production_composer_requirements_declare_the_sqlite_driver(): void
+    {
+        $composer = json_decode(file_get_contents(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
+        $lock = json_decode(file_get_contents(base_path('composer.lock')), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('~8.3.0', $composer['require']['php']);
+        $this->assertSame('*', $composer['require']['ext-pdo_sqlite']);
+        $this->assertSame($composer['require']['php'], $lock['platform']['php']);
+        $this->assertSame($composer['require']['ext-pdo_sqlite'], $lock['platform']['ext-pdo_sqlite']);
+    }
+
     public function test_app_spec_describes_only_the_minimal_manual_read_only_service(): void
     {
         $spec = file_get_contents(base_path('.do/app.yaml'));
