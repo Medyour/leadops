@@ -16,7 +16,7 @@ Cette conclusion ne constitue pas une autorisation de déploiement public intera
 | HTTPS / TLS | valide ; certificat géré par DigitalOcean |
 | DNS Cloudflare | CNAME `leadops` vers `leadops-88t64.ondigitalocean.app`, DNS-only, proxy désactivé |
 | DNSSEC | volontairement désactivé en raison de la limitation actuelle d’App Platform |
-| Ancien domaine | `https://leadops-88t64.ondigitalocean.app` : `301` vers le domaine principal, chemins conservés, dont `/leads` |
+| Starter domain | `leadops-88t64.ondigitalocean.app` : `301` vers le domaine principal, chemins et paramètres de requête conservés |
 | Parcours vérifiés | dashboard, Leads et Exceptions fonctionnels |
 | Hébergement | DigitalOcean App Platform, région `LON1` |
 | Capacité / coût | `apps-s-1vcpu-0.5gb`, 1 conteneur, 5 USD/mois |
@@ -186,6 +186,22 @@ Départ depuis `main` propre et synchronisée avec `origin/main` au commit `ab84
 Les contrôles publics utilisent uniquement GET et la résolution DNS. Les réglages DNS-only/proxy désactivé, DNSSEC désactivé, la gestion du certificat et l’auto-déploiement désactivé restent des confirmations de l’opérateur, sans inspection des consoles. La spécification est vérifiée par les tests locaux et comparée à la documentation officielle ; aucune validation distante de l’App Spec ni application à DigitalOcean n’a été effectuée. Aucun changement Cloudflare ou DigitalOcean, déploiement, rollback ou fusion n’a été déclenché.
 
 Les validations locales utilisent PHP 8.3.31 et Node.js 24.19.0 ; la CI reste configurée avec Node.js 20.20.2. Le build conserve l’avertissement connu relatif à la dépendance facultative `fontaine`.
+
+## Audit de finalisation de la PR nº 17 — 10 octobre 2026
+
+Le diff complet a été revu. L’App Spec respecte la documentation officielle citée ci-dessus : domaine `PRIMARY`, absence de `zone`, redirection HTTPS `301` ciblée sur `${STARTER_DOMAIN}`, absence de `uri` et de réécriture. Les hôtes exacts des deux règles sont distincts ; la règle de redirection ne masque pas le composant principal. `${APP_URL}`, `/health`, `8080`, `lon`/`LON1`, une instance `apps-s-1vcpu-0.5gb` à 5 USD/mois et `deploy_on_push: false` restent inchangés. La reconstruction conserve le modèle non secret et l’ajout manuel d’une `APP_KEY` chiffrée, sans exporter celle du service existant.
+
+Les GET de contrôle sans suivi de redirection renvoient tous `301` vers le domaine principal en conservant exactement les URI suivantes :
+
+- `/?audit=demo&repeat=1&repeat=2` ;
+- `/leads?status=ROUTED&page=2` ;
+- `/exceptions?status=FAILED` ;
+- `/leads/1?audit=demo` ;
+- `/audit/path%20demo?value=a%2Fb%20c&empty=&repeat=1&repeat=2`.
+
+Le README, le runbook et ce rapport utilisent le domaine principal pour les liens publics. Le starter domain reste uniquement un nom d’hôte technique pour le CNAME et les contrôles de redirection. L’audit du diff ne relève aucune donnée personnelle, valeur de clé ou token, QR code, code de récupération ni information de paiement ; le tarif public de l’instance n’est pas une donnée de paiement. Aucun fichier binaire ou secret n’est ajouté.
+
+La CI initiale de la PR est entièrement réussie, y compris les audits de dépendances et de secrets, les tests, Pint, le build isolé, la double reconstruction de la base et les contrôles runtime de production. Les corrections de finalisation portent uniquement sur les références documentaires du starter domain et la preuve de conservation des paramètres ; elles n’altèrent pas l’App Spec. Aucun accès aux consoles ni déploiement n’est réalisé pour cette finalisation.
 
 ## Performance
 

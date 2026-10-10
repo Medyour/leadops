@@ -10,7 +10,7 @@ Les informations suivantes ont été confirmées par l’opérateur. Elles décr
 | HTTPS / TLS | valide ; certificat géré par DigitalOcean |
 | DNS Cloudflare | CNAME `leadops` vers `leadops-88t64.ondigitalocean.app`, DNS-only, proxy désactivé |
 | DNSSEC | volontairement désactivé : limitation actuelle d’App Platform |
-| Ancien domaine | `https://leadops-88t64.ondigitalocean.app` : `301` vers le domaine principal, chemins conservés (exemple : `/leads`) |
+| Starter domain | `leadops-88t64.ondigitalocean.app` : `301` vers le domaine principal, chemins et paramètres de requête conservés |
 | Parcours publics | dashboard, Leads et Exceptions fonctionnels |
 | Plateforme / région | DigitalOcean App Platform / `LON1` (`region: lon` dans l’App Spec) |
 | Instance / coût | `apps-s-1vcpu-0.5gb`, 1 conteneur, 5 USD/mois |
@@ -99,6 +99,10 @@ L’URL publique définitive validée est [https://leadops.mkirchel.com](https:/
 
 Dans `.do/app.yaml`, `domains` déclare `leadops.mkirchel.com` de type `PRIMARY`, sans champ `zone` puisque DigitalOcean ne gère pas le DNS. `${APP_URL}` reste la variable liée à l’URL primaire. L’ingress cible `${STARTER_DOMAIN}` pour rediriger en HTTPS avec `redirect_code: 301` vers `leadops.mkirchel.com`. Le champ `uri` est omis : le renseigner remplacerait le chemin d’origine. La règle du domaine principal transmet le chemin complet au composant `web` avec `preserve_path_prefix: true`. Ainsi, l’ancien `/leads` doit aboutir à `https://leadops.mkirchel.com/leads`. Références : [redirection du starter domain](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/#use-subdomain-routing) et [référence App Spec](https://docs.digitalocean.com/products/app-platform/reference/app-spec/).
 
+Les deux règles ingress ciblent des hôtes exacts distincts : la redirection du starter domain, placée en premier, ne peut pas intercepter le domaine principal. L’absence de `uri` permet de conserver l’URI d’origine, y compris ses paramètres de requête ; les GET d’audit confirment ce comportement sur des chemins imbriqués et encodés, avec paramètres répétés et vides. Aucun champ de réécriture n’est ajouté.
+
+Le fichier reste un modèle non secret de reconstruction : dépôt privé et autorisation GitHub, assets versionnés, build reproductible, région, instance et réglages runtime sont décrits. Pour recréer le service, l’opérateur doit fournir une nouvelle `APP_KEY` chiffrée au runtime comme indiqué ci-dessus ; le fichier ne contient ni valeur secrète ni export complet des secrets de l’application existante. L’ajout du domaine ne change ni `/health`, ni le port `8080`, ni `region: lon` (`LON1`), ni l’instance à 5 USD/mois, ni `deploy_on_push: false`.
+
 Cette spécification versionnée aligne les réglages non secrets sur l’état confirmé par l’opérateur ; elle n’a pas été soumise à DigitalOcean. Aucune modification Cloudflare ou DigitalOcean, aucun déploiement et aucune activation de l’auto-déploiement ne sont autorisés dans cette intervention.
 
 App Platform redirige HTTP vers HTTPS et termine TLS en bordure. Laravel accepte uniquement `X-Forwarded-Proto` depuis le proxy configuré ; les valeurs transmises de host, port et adresse cliente ne sont pas approuvées. Les cookies sont `Secure`, `HttpOnly` et `SameSite=Lax`. HSTS et CSP ne sont pas ajoutés par l’application ; une politique CSP doit être conçue après stabilisation des assets. Références : [limites HTTPS/HSTS](https://docs.digitalocean.com/products/app-platform/details/limits/) et [fonctionnalités HTTPS](https://docs.digitalocean.com/products/app-platform/details/features/).
@@ -111,7 +115,7 @@ Le service utilise `GET /health` sur le port `8080`. Cette route Laravel dédié
 
 1. Ouvrir `https://leadops.mkirchel.com` et vérifier le dashboard, Leads, Exceptions, le détail et la timeline.
 2. Vérifier `GET /health` : statut `204`, corps vide.
-3. Vérifier HTTPS sans ignorer les erreurs de certificat et les URLs générées en `https://`. Contrôler l’ancien domaine sans suivre la redirection : statut `301` et en-tête `Location` vers le domaine principal, sur `/` et `/leads` avec chemin conservé. Vérifier aussi les redirections HTTP vers HTTPS.
+3. Vérifier HTTPS sans ignorer les erreurs de certificat et les URLs générées en `https://`. Contrôler le starter domain sans suivre la redirection : statut `301` et en-tête `Location` vers le domaine principal, sur `/`, `/leads` et un chemin imbriqué avec paramètres fictifs, répétés, vides et encodés ; vérifier leur conservation exacte. Vérifier aussi les redirections HTTP vers HTTPS.
 4. Vérifier les en-têtes `Cache-Control`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` et l’absence volontaire de CSP/HSTS applicatifs.
 5. Vérifier en `GET` que `/tools/webhook`, `/imports/csv` et `/leads/create` renvoient `404`. Le refus des méthodes `POST`, `PUT`, `PATCH` et `DELETE` doit être couvert par les tests locaux et la CI (`404` pour les routes explicitement fermées, `405` lorsqu’aucune route ne correspond à la méthode) ; ne pas envoyer de requête de mutation à la démonstration publique pour cet audit.
 6. Vérifier dans les logs de build : 8 leads, 68 événements et 0 job.
@@ -125,10 +129,11 @@ curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https
 curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops.mkirchel.com/tools/webhook
 curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops.mkirchel.com/imports/csv
 curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops.mkirchel.com/leads/create
-curl --silent --show-error --dump-header - --output /dev/null https://leadops-88t64.ondigitalocean.app/leads
+STARTER_DOMAIN=leadops-88t64.ondigitalocean.app
+curl --silent --show-error --globoff --path-as-is --output /dev/null --write-out '%{http_code} %{redirect_url}\n' "https://${STARTER_DOMAIN}/leads?status=ROUTED&page=2"
 ```
 
-Ces commandes utilisent `/dev/null` sous un shell POSIX ; sous Windows PowerShell, appeler `curl.exe` et remplacer `/dev/null` par `NUL`. Résultats attendus : `204`, `404`, `404`, `404`.
+Ces commandes utilisent `/dev/null` sous un shell POSIX ; sous Windows PowerShell, appeler `curl.exe`, remplacer `/dev/null` par `NUL` et affecter le domaine avec `$STARTER_DOMAIN = 'leadops-88t64.ondigitalocean.app'`. Résultats attendus : `204`, `404`, `404`, `404`, puis `301 https://leadops.mkirchel.com/leads?status=ROUTED&page=2`.
 
 ## Déploiement manuel des versions suivantes
 
