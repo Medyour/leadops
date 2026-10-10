@@ -35,7 +35,7 @@ class ProductionDeploymentTest extends TestCase
         $this->assertStringContainsString('DB_READ_ONLY', $spec);
         $this->assertStringContainsString('value: "true"', $spec);
         $this->assertStringNotContainsString('key: APP_KEY', $spec);
-        $this->assertDoesNotMatchRegularExpression('/^(workers|jobs|databases|domains):/m', $spec);
+        $this->assertDoesNotMatchRegularExpression('/^(workers|jobs|databases):/m', $spec);
         $this->assertFileDoesNotExist(base_path('Dockerfile'));
 
         $build = file_get_contents(base_path('scripts/prepare-production.sh'));
@@ -54,6 +54,30 @@ class ProductionDeploymentTest extends TestCase
         $viteConfig = file_get_contents(base_path('vite.config.js'));
         $this->assertIsString($viteConfig);
         $this->assertStringContainsString("process.env.VITE_BUILD_DIRECTORY === 'build-ci'", $viteConfig);
+    }
+
+    public function test_app_spec_routes_the_primary_domain_and_preserves_starter_redirect_paths(): void
+    {
+        $spec = file_get_contents(base_path('.do/app.yaml'));
+
+        $this->assertMatchesRegularExpression('/domains:\R  - domain: leadops\.mkirchel\.com\R    type: PRIMARY\R/', $spec);
+        $this->assertDoesNotMatchRegularExpression('/^\s*zone:/m', $spec);
+        $this->assertMatchesRegularExpression('/- key: APP_URL\R\s+value: \$\{APP_URL\}/', $spec);
+
+        // The starter rule must be host-specific and precede the component rule.
+        $this->assertSame(1, preg_match('/ingress:\R  rules:\R    - match:\R(.*?)\R    - match:\R(.*?)\Rfeatures:/s', $spec, $rules));
+        $this->assertStringContainsString('exact: ${STARTER_DOMAIN}', $rules[1]);
+        $this->assertStringContainsString('prefix: /', $rules[1]);
+        $this->assertStringContainsString('authority: leadops.mkirchel.com', $rules[1]);
+        $this->assertStringContainsString('scheme: https', $rules[1]);
+        $this->assertStringContainsString('redirect_code: 301', $rules[1]);
+        // Setting uri would replace /leads (and any other original request path).
+        $this->assertDoesNotMatchRegularExpression('/^\s*(uri|rewrite|component):/m', $rules[1]);
+        $this->assertStringContainsString('exact: leadops.mkirchel.com', $rules[2]);
+        $this->assertStringContainsString('prefix: /', $rules[2]);
+        $this->assertStringContainsString('name: web', $rules[2]);
+        $this->assertStringContainsString('preserve_path_prefix: true', $rules[2]);
+        $this->assertDoesNotMatchRegularExpression('/^\s*(redirect|rewrite):/m', $rules[2]);
     }
 
     public function test_health_check_is_stateless_and_has_no_database_dependency(): void

@@ -4,7 +4,7 @@ LeadOps est un démonstrateur local de traitement de leads B2B fictifs. Il illus
 
 Ce dépôt est un MVP de portfolio, pas un CRM ni un service prêt à recevoir des données réelles.
 
-[Démonstration en ligne](https://leadops-88t64.ondigitalocean.app) — accès public strictement en lecture seule, avec des données fictives.
+[Démonstration en ligne](https://leadops.mkirchel.com) — accès public strictement en lecture seule, avec des données fictives.
 
 ## Technologies
 
@@ -91,6 +91,8 @@ La CI GitHub exécute également une reconstruction et un double chargement du s
 Le déploiement public validé au 10 octobre 2026 utilise DigitalOcean App Platform en région `LON1`, une instance `apps-s-1vcpu-0.5gb` (1 conteneur, 5 USD/mois) et le commit `b15146f` de `main`. L’auto-déploiement est désactivé. La configuration non secrète est décrite dans [`.do/app.yaml`](.do/app.yaml), où `region: lon` désigne `LON1`.
 
 Le buildpack PHP natif utilise les assets Vite préconstruits et versionnés et reconstruit une base SQLite déterministe : **8 leads, 68 événements et 0 job**. Le service reste strictement en lecture seule, sans service de base de données, worker, volume ni Redis. Le readiness check HTTP `GET /health`, sur le port interne `8080`, renvoie `204`. Les outils `/tools/webhook`, `/imports/csv` et `/leads/create` renvoient `404` en production.
+
+Le domaine principal est `https://leadops.mkirchel.com`, avec HTTPS valide et certificat TLS géré par DigitalOcean. Cloudflare gère le DNS : CNAME `leadops` vers `leadops-88t64.ondigitalocean.app`, en mode DNS-only (proxy désactivé). DNSSEC reste volontairement désactivé en raison de la limitation actuelle d’App Platform. L’ancien domaine redirige en `301` vers le domaine principal en conservant les chemins, notamment `/leads`. `${APP_URL}` reste liée au domaine principal. Le dashboard, Leads et Exceptions sont validés ; le détail des contrôles figure dans le runbook et le rapport de readiness.
 
 `APP_KEY` est chiffrée et limitée au runtime ; sa valeur ne doit jamais être documentée, affichée ou versionnée. Les procédures de déploiement manuel, de rollback et de vérification après déploiement sont décrites dans le [runbook DigitalOcean](docs/DigitalOcean_Deployment_Runbook.md). La fusion d’une PR ou un push sur `main` ne déclenche pas de déploiement.
 

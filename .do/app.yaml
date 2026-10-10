@@ -1,5 +1,27 @@
 name: leadops
 region: lon
+domains:
+  - domain: leadops.mkirchel.com
+    type: PRIMARY
+ingress:
+  rules:
+    - match:
+        authority:
+          exact: ${STARTER_DOMAIN}
+        path:
+          prefix: /
+      redirect:
+        authority: leadops.mkirchel.com
+        scheme: https
+        redirect_code: 301
+    - match:
+        authority:
+          exact: leadops.mkirchel.com
+        path:
+          prefix: /
+      component:
+        name: web
+        preserve_path_prefix: true
 features:
   - buildpack-stack=ubuntu-22
 alerts:

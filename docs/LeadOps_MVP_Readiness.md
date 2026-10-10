@@ -12,7 +12,12 @@ Cette conclusion ne constitue pas une autorisation de déploiement public intera
 
 | Élément | État validé |
 |---|---|
-| Démonstration | [https://leadops-88t64.ondigitalocean.app](https://leadops-88t64.ondigitalocean.app) |
+| Démonstration principale | [https://leadops.mkirchel.com](https://leadops.mkirchel.com) |
+| HTTPS / TLS | valide ; certificat géré par DigitalOcean |
+| DNS Cloudflare | CNAME `leadops` vers `leadops-88t64.ondigitalocean.app`, DNS-only, proxy désactivé |
+| DNSSEC | volontairement désactivé en raison de la limitation actuelle d’App Platform |
+| Starter domain | `leadops-88t64.ondigitalocean.app` : `301` vers le domaine principal, chemins et paramètres de requête conservés |
+| Parcours vérifiés | dashboard, Leads et Exceptions fonctionnels |
 | Hébergement | DigitalOcean App Platform, région `LON1` |
 | Capacité / coût | `apps-s-1vcpu-0.5gb`, 1 conteneur, 5 USD/mois |
 | Source | `main`, auto-déploiement désactivé |
@@ -24,6 +29,8 @@ Cette conclusion ne constitue pas une autorisation de déploiement public intera
 | Secret applicatif | `APP_KEY` chiffrée, limitée au runtime ; valeur jamais documentée, affichée ni versionnée |
 
 La spécification [`.do/app.yaml`](../.do/app.yaml) décrit les réglages non secrets, avec `region: lon` pour `LON1`. Le [runbook DigitalOcean](DigitalOcean_Deployment_Runbook.md) décrit le déploiement manuel, le rollback et les vérifications après déploiement. La mise à jour documentaire ne modifie pas l’application, ne change pas DigitalOcean et ne déclenche aucun déploiement.
+
+Le domaine personnalisé est déclaré `PRIMARY`, sans `zone` puisque Cloudflare gère le DNS. `${APP_URL}` reste liée au domaine principal. La redirection de `${STARTER_DOMAIN}` utilise HTTPS et `301`, sans `uri` pour conserver le chemin ; le domaine principal transmet le chemin complet au composant `web`. Cette représentation suit la [gestion officielle des domaines](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/#use-subdomain-routing) et la [référence App Spec](https://docs.digitalocean.com/products/app-platform/reference/app-spec/). Elle n’a pas été appliquée à la plateforme.
 
 ## Critères du MVP validés
 
@@ -155,6 +162,46 @@ Départ depuis `main` propre, synchronisée avec `origin/main` au commit `b15146
 | `git diff --check` | réussi |
 
 Les contrôles HTTP sont uniquement des GET ; aucune mutation publique n’a été envoyée. Le commit déployé, la capacité, le coût et les compteurs de la base en production proviennent des confirmations de l’opérateur, sans accès à la console DigitalOcean ni extraction de la base. Les tests locaux couvrent la reconstruction déterministe 8/68/0 et le refus des écritures. Les audits de dépendances et contrôles visuels du 13 août restent des preuves historiques, sans nouvelle exécution revendiquée ici. Aucun déploiement ni rollback n’a été déclenché.
+
+## Alignement du domaine définitif — 10 octobre 2026
+
+Départ depuis `main` propre et synchronisée avec `origin/main` au commit `ab84efc`. La branche ciblée aligne le README, le runbook, ce rapport et les domaines/ingress de `.do/app.yaml`. Le test de configuration de production est adapté pour vérifier le domaine primaire, l’absence de `zone`, `${APP_URL}`, la redirection HTTPS `301` ciblée sur `${STARTER_DOMAIN}` sans remplacement du chemin et le routage vers `web`. Aucun code applicatif ni asset de production n’est modifié.
+
+| Contrôle exécuté | Résultat |
+|---|---|
+| suite Laravel | 187 tests réussis, 3 183 assertions |
+| Laravel Pint (`--test`) | réussi |
+| tests JavaScript | 31 réussis |
+| build Vite isolé (`VITE_BUILD_DIRECTORY=build-ci`) | réussi ; assets versionnés inchangés |
+| `composer validate --strict` | valide |
+| HTTPS public | vérification TLS par curl réussie, sans désactiver la validation du certificat |
+| GET `https://leadops.mkirchel.com/health` | `204` |
+| GET `/`, `/leads`, `/exceptions`, `/leads/1` sur le domaine principal | `200` |
+| GET `/tools/webhook`, `/imports/csv`, `/leads/create` sur le domaine principal | `404` |
+| GET ancien domaine `/`, sans suivre la redirection | `301`, destination `https://leadops.mkirchel.com/` |
+| GET ancien domaine `/leads`, sans suivre la redirection | `301`, destination `https://leadops.mkirchel.com/leads` |
+| résolution DNS CNAME | `leadops.mkirchel.com` vers `leadops-88t64.ondigitalocean.app` |
+| `git diff --check` | réussi |
+
+Les contrôles publics utilisent uniquement GET et la résolution DNS. Les réglages DNS-only/proxy désactivé, DNSSEC désactivé, la gestion du certificat et l’auto-déploiement désactivé restent des confirmations de l’opérateur, sans inspection des consoles. La spécification est vérifiée par les tests locaux et comparée à la documentation officielle ; aucune validation distante de l’App Spec ni application à DigitalOcean n’a été effectuée. Aucun changement Cloudflare ou DigitalOcean, déploiement, rollback ou fusion n’a été déclenché.
+
+Les validations locales utilisent PHP 8.3.31 et Node.js 24.19.0 ; la CI reste configurée avec Node.js 20.20.2. Le build conserve l’avertissement connu relatif à la dépendance facultative `fontaine`.
+
+## Audit de finalisation de la PR nº 17 — 10 octobre 2026
+
+Le diff complet a été revu. L’App Spec respecte la documentation officielle citée ci-dessus : domaine `PRIMARY`, absence de `zone`, redirection HTTPS `301` ciblée sur `${STARTER_DOMAIN}`, absence de `uri` et de réécriture. Les hôtes exacts des deux règles sont distincts ; la règle de redirection ne masque pas le composant principal. `${APP_URL}`, `/health`, `8080`, `lon`/`LON1`, une instance `apps-s-1vcpu-0.5gb` à 5 USD/mois et `deploy_on_push: false` restent inchangés. La reconstruction conserve le modèle non secret et l’ajout manuel d’une `APP_KEY` chiffrée, sans exporter celle du service existant.
+
+Les GET de contrôle sans suivi de redirection renvoient tous `301` vers le domaine principal en conservant exactement les URI suivantes :
+
+- `/?audit=demo&repeat=1&repeat=2` ;
+- `/leads?status=ROUTED&page=2` ;
+- `/exceptions?status=FAILED` ;
+- `/leads/1?audit=demo` ;
+- `/audit/path%20demo?value=a%2Fb%20c&empty=&repeat=1&repeat=2`.
+
+Le README, le runbook et ce rapport utilisent le domaine principal pour les liens publics. Le starter domain reste uniquement un nom d’hôte technique pour le CNAME et les contrôles de redirection. L’audit du diff ne relève aucune donnée personnelle, valeur de clé ou token, QR code, code de récupération ni information de paiement ; le tarif public de l’instance n’est pas une donnée de paiement. Aucun fichier binaire ou secret n’est ajouté.
+
+La CI initiale de la PR est entièrement réussie, y compris les audits de dépendances et de secrets, les tests, Pint, le build isolé, la double reconstruction de la base et les contrôles runtime de production. Les corrections de finalisation portent uniquement sur les références documentaires du starter domain et la preuve de conservation des paramètres ; elles n’altèrent pas l’App Spec. Aucun accès aux consoles ni déploiement n’est réalisé pour cette finalisation.
 
 ## Performance
 
