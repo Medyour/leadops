@@ -2,9 +2,28 @@
 
 ## Conclusion
 
-Le MVP LeadOps est prêt pour une démonstration locale de portfolio avec des données exclusivement fictives. Le périmètre fonctionnel décrit par la spécification et l’architecture est terminé, reproductible et couvert par des tests.
+Le MVP LeadOps dispose d’une démonstration locale et d’un déploiement public validé, strictement en lecture seule, avec des données exclusivement fictives. Le périmètre fonctionnel décrit par la spécification et l’architecture est terminé, reproductible et couvert par des tests.
 
 Cette conclusion ne constitue pas une autorisation de déploiement public interactif. Hors `local` et `testing`, l’application doit rester strictement en lecture seule. Toute mutation publique exige au préalable une authentification, des autorisations explicites et un moteur SQL serveur.
+
+## Déploiement public validé — 10 octobre 2026
+
+État confirmé par l’opérateur, distinct des preuves locales historiques ci-dessous :
+
+| Élément | État validé |
+|---|---|
+| Démonstration | [https://leadops-88t64.ondigitalocean.app](https://leadops-88t64.ondigitalocean.app) |
+| Hébergement | DigitalOcean App Platform, région `LON1` |
+| Capacité / coût | `apps-s-1vcpu-0.5gb`, 1 conteneur, 5 USD/mois |
+| Source | `main`, auto-déploiement désactivé |
+| Commit déployé | `b15146f` |
+| Mode / données | lecture seule ; SQLite déterministe, 8 leads, 68 événements, 0 job |
+| Readiness HTTP | `/health`, port interne `8080`, réponse `204` |
+| Routes locales fermées | `/tools/webhook`, `/imports/csv`, `/leads/create` : `404` en production |
+| Infrastructure | aucun service de base de données, worker, volume ou Redis |
+| Secret applicatif | `APP_KEY` chiffrée, limitée au runtime ; valeur jamais documentée, affichée ni versionnée |
+
+La spécification [`.do/app.yaml`](../.do/app.yaml) décrit les réglages non secrets, avec `region: lon` pour `LON1`. Le [runbook DigitalOcean](DigitalOcean_Deployment_Runbook.md) décrit le déploiement manuel, le rollback et les vérifications après déploiement. La mise à jour documentaire ne modifie pas l’application, ne change pas DigitalOcean et ne déclenche aucun déploiement.
 
 ## Critères du MVP validés
 
@@ -34,7 +53,7 @@ Le durcissement final ajoute ou confirme :
 - chiffrement des sessions activé par défaut ;
 - réponses dynamiques non stockables par les caches ;
 - en-têtes anti-framing, `nosniff`, politique de référent, isolation de fenêtre et permissions navigateur minimales ;
-- absence volontaire de HSTS avant HTTPS définitif et de CSP avant stabilisation de l’hébergement ;
+- absence de HSTS et de CSP applicatifs ; HTTPS est assuré par DigitalOcean pour la démonstration validée ;
 - audits Composer et npm ainsi qu’un double chargement du seeder dans la CI.
 
 ## Risques trouvés et corrections
@@ -85,7 +104,7 @@ L’audit a porté sur les réponses HTTP, Blade, Vue, les événements, les log
 - Le webhook ne renvoie que le résultat, l’identifiant interne et le statut autorisé.
 - Les valeurs de correction ne sont pas recopiées dans les erreurs d’action ; les sessions persistantes sont chiffrées.
 - Le CSV uploadé n’est jamais copié dans un stockage applicatif permanent.
-- Les fichiers suivis ne contiennent ni `.env` local, base SQLite, log, certificat, clé privée, jeton, dossier `vendor`, `node_modules` ou build Vite.
+- Les fichiers suivis ne contiennent ni `.env` local, base SQLite, log, certificat, clé privée, jeton, dossier `vendor` ou `node_modules`. Les assets Vite préconstruits sous `public/build` sont volontairement versionnés pour le buildpack PHP ; le build de contrôle sous `public/build-ci` reste ignoré.
 - Les données versionnées utilisent uniquement `example.test`, des noms inventés et des numéros fictifs.
 
 L’affichage de détail montre volontairement les données fictives du démonstrateur. Une future utilisation de données réelles imposerait une nouvelle analyse de minimisation, d’autorisation, de rétention et d’accès.
@@ -117,6 +136,26 @@ Validation locale finale du 13 août 2026 :
 
 Le build conserve l’avertissement facultatif relatif à `fontaine`. Cette dépendance n’est pas installée uniquement pour supprimer cet avertissement.
 
+## Audit documentaire et contrôles du 10 octobre 2026
+
+Départ depuis `main` propre, synchronisée avec `origin/main` au commit `b15146f`. Périmètre : README, runbook, présent rapport et ajout de la région `lon` dans l’App Spec ; aucun code applicatif ou asset de production modifié.
+
+| Contrôle exécuté | Résultat |
+|---|---|
+| suite Laravel | 186 tests réussis, 3 168 assertions |
+| Laravel Pint (`--test`) | réussi |
+| tests JavaScript | 31 réussis |
+| build Vite isolé (`VITE_BUILD_DIRECTORY=build-ci`) | réussi ; assets versionnés inchangés |
+| `composer validate --strict` | valide |
+| GET public `/health` | `204` |
+| GET publics `/`, `/leads`, `/exceptions`, `/leads/1` | `200` |
+| GET publics `/tools/webhook`, `/imports/csv`, `/leads/create` | `404` |
+| audit des fichiers suivis et motifs de secrets | aucun secret ni fichier `.env`, SQLite ou clé/certificat détecté |
+| exclusions Git | `.env` et `database/demo.sqlite` ignorés |
+| `git diff --check` | réussi |
+
+Les contrôles HTTP sont uniquement des GET ; aucune mutation publique n’a été envoyée. Le commit déployé, la capacité, le coût et les compteurs de la base en production proviennent des confirmations de l’opérateur, sans accès à la console DigitalOcean ni extraction de la base. Les tests locaux couvrent la reconstruction déterministe 8/68/0 et le refus des écritures. Les audits de dépendances et contrôles visuels du 13 août restent des preuves historiques, sans nouvelle exécution revendiquée ici. Aucun déploiement ni rollback n’a été déclenché.
+
 ## Performance
 
 - les listes sélectionnent un ensemble borné de colonnes et paginent à 20 éléments ;
@@ -136,7 +175,7 @@ SQLite est adapté à une démonstration mono-opérateur, mais `SELECT ... FOR U
 
 ### Queue et verrous locaux
 
-La queue `database` et les verrous locaux conviennent au MVP. Leur comportement sous plusieurs workers et plusieurs hôtes n’est pas certifié. Les expirations de verrous devront être revues avec les délais et l’infrastructure du déploiement réel.
+La queue `database` et les verrous locaux conviennent aux parcours locaux du MVP. Leur comportement sous plusieurs workers et plusieurs hôtes n’est pas certifié. Le déploiement public utilise la connexion `discard` (pilote `null`) sans worker et ne doit créer aucun job. Les expirations de verrous devront être revues avant une future infrastructure de traitement public.
 
 ### Absence d’outbox
 
@@ -144,20 +183,13 @@ La transmission est locale et simulée. Il n’existe pas d’outbox transaction
 
 ### Authentification absente
 
-Le MVP n’a ni comptes opérateurs, ni rôles, ni politiques d’autorisation métier. Cette limite est acceptable uniquement parce que toutes les mutations sont locales. Les lectures publiques éventuelles ne doivent contenir que le jeu fictif fourni.
+Le MVP n’a ni comptes opérateurs, ni rôles, ni politiques d’autorisation métier. Cette limite est acceptable uniquement parce que toutes les mutations sont locales. Les lectures publiques contiennent exclusivement le jeu fictif fourni.
 
-## Prérequis avant un futur déploiement public
+## Limites du déploiement public et évolution du périmètre
 
-Avant toute exposition publique, même en lecture seule :
+Le déploiement public validé dispose de HTTPS, d’un environnement `production` sans debug, de proxies configurés, de sessions et cache `array`, de logs `stderr` et d’une base fictive reconstruite à chaque build. Il reste limité à une instance de 512 Mio, sans haute disponibilité ni persistance de données utilisateur. `/health` ne teste pas SQLite ; les vérifications métier du runbook restent nécessaires.
 
-1. choisir le domaine, l’hébergement HTTPS et la terminaison TLS ;
-2. configurer `APP_ENV=production`, `APP_DEBUG=false`, une clé forte et des secrets hors Git ;
-3. définir les proxies de confiance, cookies `Secure`, domaine de session et stockage de session adapté ;
-4. concevoir puis tester une CSP compatible avec les assets réellement hébergés ;
-5. activer HSTS uniquement après validation de HTTPS sur le domaine et les sous-domaines concernés ;
-6. mettre en place journalisation centralisée avec redaction, alertes, sauvegardes et politique de rétention ;
-7. exécuter les tests de charge, concurrence, restauration et migration sur l’infrastructure cible ;
-8. réévaluer les dépendances et les en-têtes au moment du déploiement.
+Une CSP, une politique HSTS adaptée aux domaines, les tests de charge et de concurrence et une stratégie de sauvegarde/rétention pour d’éventuelles données persistantes restent à traiter avant une extension du périmètre. Ces points ne sont pas présentés comme validés par cette démonstration. Les dépendances et en-têtes doivent être réévalués à chaque intervention.
 
 Avant toute mutation publique, il faut en plus :
 
@@ -170,4 +202,4 @@ Avant toute mutation publique, il faut en plus :
 
 ## Confirmation du périmètre
 
-Le dépôt n’utilise aucune donnée personnelle ou client réelle. Il n’appelle aucune API d’IA, aucun CRM, aucun fournisseur de messagerie et aucun service de transmission réel. Aucun domaine, hébergement ou service externe n’a été créé pendant le durcissement final.
+Le dépôt n’utilise aucune donnée personnelle ou client réelle. Il n’appelle aucune API d’IA, aucun CRM, aucun fournisseur de messagerie et aucun service de transmission réel. L’hébergement public DigitalOcean est confirmé ; aucun service externe, domaine ou déploiement supplémentaire n’est créé par cette mise à jour documentaire.

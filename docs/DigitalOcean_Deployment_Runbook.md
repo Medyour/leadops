@@ -1,5 +1,26 @@
 # Déploiement DigitalOcean App Platform — lecture seule
 
+## État public validé au 10 octobre 2026
+
+Les informations suivantes ont été confirmées par l’opérateur. Elles décrivent le déploiement existant ; la présente mise à jour documentaire ne modifie pas DigitalOcean et ne déclenche aucun déploiement.
+
+| Réglage | État validé |
+|---|---|
+| URL | [Démonstration en ligne](https://leadops-88t64.ondigitalocean.app) |
+| Plateforme / région | DigitalOcean App Platform / `LON1` (`region: lon` dans l’App Spec) |
+| Instance / coût | `apps-s-1vcpu-0.5gb`, 1 conteneur, 5 USD/mois |
+| Source / déploiement | `main`, auto-déploiement désactivé (`deploy_on_push: false`) |
+| Commit actuellement déployé | `b15146f` |
+| Mode | strictement en lecture seule |
+| SQLite déterministe | 8 leads, 68 événements, 0 job |
+| Readiness check HTTP | `GET /health`, port interne `8080`, réponse `204` |
+| Outils locaux | `/tools/webhook`, `/imports/csv`, `/leads/create` : `404` en production |
+| Ressources supplémentaires | aucun service de base de données, worker, volume ou Redis |
+
+`APP_KEY` est chiffrée et limitée au runtime. Ne jamais documenter, afficher, exporter ou versionner sa valeur, même dans une capture, un log, une PR ou une copie de l’App Spec. Ne jamais versionner une base SQLite ni un fichier d’environnement local.
+
+Le slug régional `lon` suit la [correspondance officielle des régions App Platform](https://docs.digitalocean.com/products/app-platform/how-to/enable-vpc/) ; aucune connexion VPC n’est ajoutée.
+
 ## Architecture retenue
 
 Le déploiement cible une seule ressource **Web Service** DigitalOcean App Platform avec le buildpack PHP natif, sur la pile Ubuntu 22. Le modèle [`.do/app.yaml`](../.do/app.yaml) utilise le dépôt GitHub privé `Medyour/leadops`, la branche `main`, désactive `deploy_on_push` et sélectionne une seule instance `apps-s-1vcpu-0.5gb`.
@@ -26,7 +47,7 @@ Le modèle App Spec contient les valeurs non secrètes. Avant le premier déploi
 
 | Variable | Portée | Chiffrée | Valeur |
 |---|---|---:|---|
-| `APP_KEY` | Run time | oui | sortie de `php artisan key:generate --show`, générée hors Git |
+| `APP_KEY` | Run time uniquement | oui | secret déjà configuré ; valeur jamais affichée ni consignée |
 
 Les variables importantes déjà décrites par le modèle sont :
 
@@ -53,7 +74,7 @@ Les variables importantes déjà décrites par le modèle sont :
 
 ## Création manuelle du service
 
-Cette procédure décrit les actions à effectuer ; elle ne les automatise pas.
+Le service existe déjà. Cette procédure est conservée pour une éventuelle recréation autorisée ; elle ne doit pas être exécutée pour une mise à jour documentaire.
 
 1. Dans DigitalOcean, choisir **Create > App Platform**.
 2. Autoriser l’accès en lecture au dépôt GitHub privé strictement nécessaire, puis sélectionner `Medyour/leadops` et `main`.
@@ -61,7 +82,7 @@ Cette procédure décrit les actions à effectuer ; elle ne les automatise pas.
 4. Importer les réglages de `.do/app.yaml` ou les reproduire dans l’interface.
 5. Vérifier qu’il existe exactement un Web Service, aucun worker, job, volume, Redis ou base gérée.
 6. Vérifier le buildpack PHP, la pile Ubuntu 22, le port HTTP `8080`, la commande de build et la commande de démarrage.
-7. Sélectionner une instance `apps-s-1vcpu-0.5gb`, quantité `1`.
+7. Sélectionner la région `LON1` (`lon` dans l’App Spec) et une instance `apps-s-1vcpu-0.5gb`, quantité `1`.
 8. Ajouter `APP_KEY` comme variable chiffrée de portée runtime avant le lancement.
 9. Vérifier le récapitulatif et le coût, puis déclencher le premier déploiement manuellement.
 
@@ -69,7 +90,7 @@ Le plan `apps-s-1vcpu-0.5gb` fournit actuellement 1 vCPU partagé, 512 Mio de RA
 
 ## URL temporaire et HTTPS
 
-Après un déploiement réussi, DigitalOcean attribue une URL `https://<nom>.ondigitalocean.app`. Utiliser cette URL technique avant tout sous-domaine personnalisé. Référence : [gestion des domaines](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/).
+L’URL publique validée est [https://leadops-88t64.ondigitalocean.app](https://leadops-88t64.ondigitalocean.app). Aucun domaine personnalisé n’est nécessaire. `${APP_URL}` reste la variable liée à l’URL primaire fournie par DigitalOcean. Référence : [gestion des domaines](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/).
 
 App Platform redirige HTTP vers HTTPS et termine TLS en bordure. Laravel accepte uniquement `X-Forwarded-Proto` depuis le proxy configuré ; les valeurs transmises de host, port et adresse cliente ne sont pas approuvées. Les cookies sont `Secure`, `HttpOnly` et `SameSite=Lax`. HSTS et CSP ne sont pas ajoutés par l’application ; une politique CSP doit être conçue après stabilisation des assets. Références : [limites HTTPS/HSTS](https://docs.digitalocean.com/products/app-platform/details/limits/) et [fonctionnalités HTTPS](https://docs.digitalocean.com/products/app-platform/details/features/).
 
@@ -83,14 +104,45 @@ Le service utilise `GET /health` sur le port `8080`. Cette route Laravel dédié
 2. Vérifier `GET /health` : statut `204`, corps vide.
 3. Vérifier les redirections HTTP vers HTTPS et les URLs générées en `https://`.
 4. Vérifier les en-têtes `Cache-Control`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` et l’absence volontaire de CSP/HSTS applicatifs.
-5. Vérifier que les routes locales renvoient `404` et que toutes les méthodes `POST`, `PUT`, `PATCH` et `DELETE` restent refusées (`404` pour les routes explicitement fermées, `405` lorsqu’aucune route ne correspond à la méthode).
+5. Vérifier en `GET` que `/tools/webhook`, `/imports/csv` et `/leads/create` renvoient `404`. Le refus des méthodes `POST`, `PUT`, `PATCH` et `DELETE` doit être couvert par les tests locaux et la CI (`404` pour les routes explicitement fermées, `405` lorsqu’aucune route ne correspond à la méthode) ; ne pas envoyer de requête de mutation à la démonstration publique pour cet audit.
 6. Vérifier dans les logs de build : 8 leads, 68 événements et 0 job.
 7. Vérifier l’absence de worker et que les logs applicatifs apparaissent dans les logs runtime DigitalOcean, pas dans un fichier persistant.
 8. Vérifier que ni `database/*.sqlite`, ni `.env`, ni clé ou jeton ne sont suivis par Git.
 
+Consigner la date, l’URL, le commit affiché par le déploiement **Live app**, les statuts HTTP et les compteurs, sans contenu de secret. Un `204` sur `/health` valide la disponibilité HTTP, pas SQLite ni les parcours métier : les autres contrôles restent nécessaires. Les GET de contrôle peuvent être effectués sans authentification avec `curl` :
+
+```shell
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops-88t64.ondigitalocean.app/health
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops-88t64.ondigitalocean.app/tools/webhook
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops-88t64.ondigitalocean.app/imports/csv
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' https://leadops-88t64.ondigitalocean.app/leads/create
+```
+
+Ces commandes utilisent `/dev/null` sous un shell POSIX ; sous Windows PowerShell, appeler `curl.exe` et remplacer `/dev/null` par `NUL`. Résultats attendus : `204`, `404`, `404`, `404`.
+
+## Déploiement manuel des versions suivantes
+
+Procédure réservée à une intervention explicitement autorisée. Une PR, sa fusion ou un push ne déploie rien puisque l’auto-déploiement est désactivé.
+
+1. Faire valider et fusionner la version destinée à la production sur `main`, avec les contrôles qualité réussis. Partir d’une copie locale propre et synchronisée, puis relever le SHA complet de `origin/main`.
+2. Noter le commit et le déploiement actuellement sains (référence validée : `b15146f`) pour un éventuel rollback.
+3. Dans App Platform, ouvrir l’application existante. Vérifier `main`, l’auto-déploiement désactivé, `LON1`, une seule instance et les réglages non secrets de `.do/app.yaml`, dont `/health` et `8080`. Conserver le secret runtime existant sans afficher sa valeur. Ne pas importer aveuglément cette spécification partielle : elle omet volontairement le secret.
+4. Après autorisation, choisir **Actions > Deploy**. Cette action récupère le dernier code de la branche source ; elle ne sélectionne pas le SHA de cette PR. Éviter un nouveau push sur `main` pendant l’intervention et contrôler le SHA effectivement pris en charge.
+5. Suivre le build et l’état du déploiement dans **Activity**. Vérifier les compteurs 8/68/0 dans les logs de build et attendre le statut **Live app**.
+6. Comparer le commit de **Live app** au SHA prévu, puis exécuter tous les contrôles après déploiement. Si le commit ou les invariants diffèrent, ne pas déclarer la version validée et appliquer la procédure de rollback si nécessaire.
+
+Référence : [gestion des déploiements DigitalOcean](https://docs.digitalocean.com/products/app-platform/how-to/manage-deployments/).
+
 ## Rollback
 
-App Platform conserve les déploiements réussis récents et permet de redéployer une version antérieure depuis l’onglet **Deployments**. Sélectionner le dernier déploiement connu comme sain, lancer le rollback, puis répéter les contrôles ci-dessus. La base SQLite contenue dans l’image du déploiement restauré correspond à cette version ; aucune restauration de données runtime n’est requise. DigitalOcean annonce la restauration possible vers l’un des dix derniers déploiements réussis dans les [fonctionnalités App Platform](https://docs.digitalocean.com/products/app-platform/details/features/).
+Procédure à exécuter uniquement lors d’une intervention autorisée ; aucun rollback n’est lancé par cet audit.
+
+1. Dans **Activity**, identifier le dernier déploiement réussi et validé, à partir de son commit (référence actuelle : `b15146f`). App Platform propose les dix derniers déploiements réussis ; la cible doit être dans la même région avec les mêmes ressources et configuration de base de données.
+2. Choisir **Rollback** à côté de ce déploiement. Vérifier la comparaison du code et des réglages non secrets : `LON1`, une instance, lecture seule, `/health`, `8080`, aucun service de données ni worker. Ne pas afficher ou copier les valeurs secrètes.
+3. Garder **Automatically Deploy Code Changes** désactivé, puis confirmer le rollback après autorisation.
+4. Attendre **Live app**, vérifier le commit restauré et répéter les contrôles après déploiement. Consigner les résultats sans secret.
+
+Le rollback restaure le code, la configuration et l’App Spec du déploiement choisi, sans réécrire l’historique Git. Ici, la SQLite fictive est incluse dans l’image restaurée ; aucune donnée runtime ni base gérée ne nécessite de restauration. Si le déploiement de référence n’est plus disponible, arrêter et préparer une version de restauration revue sur `main` avant tout déploiement manuel autorisé. Référence : [rollback DigitalOcean](https://docs.digitalocean.com/products/app-platform/how-to/manage-deployments/#roll-back-to-a-previous-deployment).
 
 ## Connexion future du sous-domaine
 

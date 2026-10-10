@@ -1,4 +1,5 @@
 name: leadops
+region: lon
 features:
   - buildpack-stack=ubuntu-22
 alerts:
