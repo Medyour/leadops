@@ -4,6 +4,8 @@ LeadOps est un démonstrateur local de traitement de leads B2B fictifs. Il illus
 
 Ce dépôt est un MVP de portfolio, pas un CRM ni un service prêt à recevoir des données réelles.
 
+[Démonstration en ligne](https://leadops-88t64.ondigitalocean.app) — accès public strictement en lecture seule, avec des données fictives.
+
 ## Technologies
 
 - PHP 8.3 et Laravel 13 ;
@@ -86,9 +88,11 @@ La CI GitHub exécute également une reconstruction et un double chargement du s
 
 ## Déploiement public en lecture seule
 
-Une configuration minimale DigitalOcean App Platform est fournie dans [`.do/app.yaml`](.do/app.yaml). Elle utilise le buildpack PHP natif, vérifie les assets Vite préconstruits et versionnés, recrée une base SQLite de démonstration de 8 leads et 68 événements, puis démarre une unique instance web sans worker ni service de données.
+Le déploiement public validé au 10 octobre 2026 utilise DigitalOcean App Platform en région `LON1`, une instance `apps-s-1vcpu-0.5gb` (1 conteneur, 5 USD/mois) et le commit `b15146f` de `main`. L’auto-déploiement est désactivé. La configuration non secrète est décrite dans [`.do/app.yaml`](.do/app.yaml), où `region: lon` désigne `LON1`.
 
-La procédure ne doit pas être lancée automatiquement : le dépôt privé doit être sélectionné manuellement, `APP_KEY` doit être générée hors Git et enregistrée comme variable chiffrée, et le déploiement sur `main` reste manuel. Le guide complet se trouve dans [docs/DigitalOcean_Deployment_Runbook.md](docs/DigitalOcean_Deployment_Runbook.md).
+Le buildpack PHP natif utilise les assets Vite préconstruits et versionnés et reconstruit une base SQLite déterministe : **8 leads, 68 événements et 0 job**. Le service reste strictement en lecture seule, sans service de base de données, worker, volume ni Redis. Le readiness check HTTP `GET /health`, sur le port interne `8080`, renvoie `204`. Les outils `/tools/webhook`, `/imports/csv` et `/leads/create` renvoient `404` en production.
+
+`APP_KEY` est chiffrée et limitée au runtime ; sa valeur ne doit jamais être documentée, affichée ou versionnée. Les procédures de déploiement manuel, de rollback et de vérification après déploiement sont décrites dans le [runbook DigitalOcean](docs/DigitalOcean_Deployment_Runbook.md). La fusion d’une PR ou un push sur `main` ne déclenche pas de déploiement.
 
 ## Architecture de sécurité
 
@@ -105,7 +109,7 @@ La procédure ne doit pas être lancée automatiquement : le dépôt privé doit
 - sessions chiffrées et réponses dynamiques marquées `no-store` ;
 - en-têtes `nosniff`, anti-framing, politique de référent et permissions navigateur minimales.
 
-HSTS n’est pas activé avant la définition de l’hébergement HTTPS. Aucune CSP n’est imposée tant que les contraintes de l’hébergement et des assets ne sont pas stabilisées.
+DigitalOcean assure la terminaison HTTPS de la démonstration publique. L’application n’ajoute actuellement ni HSTS ni CSP ; ces politiques restent à évaluer avant toute extension du périmètre.
 
 ## Limites connues
 
@@ -113,7 +117,7 @@ HSTS n’est pas activé avant la définition de l’hébergement HTTPS. Aucune 
 - la queue et les verrous partagent l’infrastructure locale, adaptée à une démonstration mono-opérateur ;
 - aucune outbox transactionnelle ne couvre une future transmission externe ;
 - aucune authentification métier n’est incluse ; les mutations doivent rester désactivées hors environnement local ou de test ;
-- aucun hébergement public, politique de rétention avancée ou intégration externe n’est fourni ;
+- l’hébergement public se limite au jeu fictif en lecture seule ; aucune politique de rétention avancée ni intégration externe n’est fournie ;
 - le simulateur webhook nécessite JavaScript, tandis que les écrans Blade principaux et l’import conservent leur parcours serveur sans JavaScript.
 
 Avant toute mutation publique, LeadOps devra disposer d’une authentification, d’autorisations explicites, d’un moteur SQL serveur et d’une stratégie de déploiement sécurisée.
